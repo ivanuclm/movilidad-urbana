@@ -86,3 +86,9 @@ El modelo recibe variables derivadas de OSRM/OTP más variables sociodemográfic
 - No listes pros/cons sin conclusión. Dame opinión técnica directa.
 - No uses guiones largos. Usa comas, puntos o dos puntos.
 - El estado actualizado de la memoria está en ESTADO_MEMORIA.md del repositorio
+
+## Límites formales
+- Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)
+- Defensa: 20 min exposición + mínimo 10 min preguntas, máximo 60 min total
+- Depósito convocatoria ordinaria: 8 julio 2026
+- Defensa convocatoria ordinaria: 15–24 julio 2026

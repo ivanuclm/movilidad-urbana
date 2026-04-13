@@ -60,9 +60,15 @@
 - ch2_pipeline2.png: disponible, comentada (anotada para ch1)
 
 ## Próximo trabajo previsto
-1. Subsección dataset LPMC en ch2
-2. ch4 arquitectura completo
-3. ch5 implementación completo
+1. ch4 arquitectura completo
+2. ch5 implementación completo
+3. Subsección dataset LPMC en ch2
 4. Decidir e integrar validación (ch6_OLD)
 5. ch1 contexto/motivación y alcance
 6. ch6 conclusiones
+
+## Límites formales
+- Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)
+- Defensa: 20 min exposición + mínimo 10 min preguntas, máximo 60 min total
+- Depósito convocatoria ordinaria: 8 julio 2026
+- Defensa convocatoria ordinaria: 15–24 julio 2026
