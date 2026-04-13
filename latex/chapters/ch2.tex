@@ -6,6 +6,7 @@ La movilidad urbana se ha consolidado como un ámbito de estudio en el que confl
 
 Este tipo de sistemas exige combinar varias capas de conocimiento. Por un lado, la capa de datos, que determina la calidad y la trazabilidad de la información sobre la red de transporte y los servicios de transporte público asociados. Por otro, la capa de enrutado, que permite transformar un par origen-destino en variables de servicio observables (tiempo, distancia, segmentos de viaje, transbordos o coste aproximado). Finalmente, la capa de modelado, en la que dichas variables se integran con atributos sociodemográficos para estimar la elección modal y construir escenarios \textit{what-if}. Esta arquitectura en capas es coherente con la evolución reciente de herramientas de simulación en investigación y planificación \cite{Horni2016MATSim,Lopez2018SUMO}.
 
+%%%%%%%%%%%%% PARA INTRODUCCIÓN CH1 %%%%%%%%%%%%%%%%%%
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=\textwidth]{figs/ch2_pipeline2.png}
@@ -165,7 +166,7 @@ Con el aumento de la disponibilidad de datos y de la capacidad computacional, en
 
 A diferencia de los modelos clásicos de elección discreta, muchos algoritmos de aprendizaje automático no requieren especificar de forma explícita la forma funcional de la relación entre variables. En su lugar, aprenden patrones directamente a partir de los datos de entrenamiento, lo que les permite capturar relaciones no lineales, interacciones complejas entre atributos y estructuras de decisión difíciles de representar mediante modelos lineales tradicionales.
 
-Entre las técnicas más utilizadas en este contexto destacan los métodos basados en árboles de decisión y los modelos de conjunto derivados de ellos, como Random Forest o Gradient Boosting Decision Trees, así como los modelos basados en redes neuronales profundas. Estos enfoques han mostrado un rendimiento predictivo competitivo en numerosos problemas de clasificación tabular, incluyendo aplicaciones en transporte y elección modal.
+Entre las técnicas más utilizadas en este contexto destacan los métodos basados en árboles de decisión y los modelos de conjunto (\textit{ensemble models}) derivados de ellos, como Random Forest o Gradient Boosting Decision Trees, así como los modelos basados en redes neuronales profundas. Estos enfoques han mostrado un rendimiento predictivo competitivo en numerosos problemas de clasificación tabular, incluyendo aplicaciones en transporte y elección modal.
 
 En este trabajo se adopta esta perspectiva complementaria: el modelo Logit Multinomial se considera como referencia metodológica clásica, mientras que distintos modelos de aprendizaje automático se utilizan para explorar alternativas con mayor capacidad predictiva. En particular, la arquitectura del simulador se ha diseñado para permitir la integración de diferentes modelos de clasificación, entre ellos Random Forest, Gradient Boosting Decision Trees y redes neuronales profundas, de forma que puedan compararse sus resultados en el contexto del problema de elección modal analizado. Esta comparación resulta coherente con la evidencia reciente disponible para datasets reales de elección modal, entre ellos LPMC \cite{Hillel2018LPMC}.
 
