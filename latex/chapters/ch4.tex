@@ -1,28 +1,116 @@
-\chapter{Arquitectura/Diseño de la solución}
+% \chapter{Arquitectura/Diseño de la solución}
 
-\section{Arquitectura general del sistema}
-% \subsection{Vista de alto nivel}
-% \subsubsection{Componentes y relaciones}
+% \section{Arquitectura general del sistema}
+% % \subsection{Vista de alto nivel}
+% % \subsubsection{Componentes y relaciones}
 
-\section{Diseño del backend}
-% \subsection{Estructura interna de FastAPI}
-% \subsubsection{Capas y responsabilidades}
+% \section{Diseño del backend}
+% % \subsection{Estructura interna de FastAPI}
+% % \subsubsection{Capas y responsabilidades}
 
-% \subsection{Diseño de API}
-% \subsubsection{Contratos de entrada y salida}
+% % \subsection{Diseño de API}
+% % \subsubsection{Contratos de entrada y salida}
 
-\section{Diseño del frontend}
-% \subsection{Estructura de componentes}
-% \subsubsection{Gestión de estado y peticiones}
+% \section{Diseño del frontend}
+% % \subsection{Estructura de componentes}
+% % \subsubsection{Gestión de estado y peticiones}
 
-\section{Integración OSRM, OTP y GTFS}
-% \subsection{Flujo de datos de enrutado}
-% \subsubsection{Transformaciones y normalización}
+% \section{Integración OSRM, OTP y GTFS}
+% % \subsection{Flujo de datos de enrutado}
+% % \subsubsection{Transformaciones y normalización}
 
-\section{Diseño de integración del modelo IA}
-% \subsection{Contrato para inferencia}
-% \subsubsection{Variables de entrada y salida}
+% \section{Diseño de integración del modelo IA}
+% % \subsection{Contrato para inferencia}
+% % \subsubsection{Variables de entrada y salida}
 
-\section{Decisiones técnicas y trade-offs}
-% \subsection{Alternativas consideradas}
-% \subsubsection{Justificación de la opción elegida}
+% \section{Decisiones técnicas y trade-offs}
+% % \subsection{Alternativas consideradas}
+% % \subsubsection{Justificación de la opción elegida}
+
+\chapter{Arquitectura del sistema}
+
+Este capítulo describe la organización estructural del simulador: los componentes que lo forman, cómo se relacionan entre sí y las decisiones de diseño que condicionan esa organización. El detalle de implementación de cada componente se desarrolla en el capítulo~\ref{ch:implementacion}.
+
+El sistema está compuesto por cinco bloques funcionales: una interfaz web, un backend de orquestación, tres instancias del motor de enrutado viario OSRM, un planificador de transporte público basado en OpenTripPlanner y un módulo de inferencia de elección modal. Todos ellos se despliegan como contenedores Docker orquestados mediante Docker Compose.
+
+% -------------------------------------------------------
+\section{Visión general}
+\label{sec:arch_vision_general}
+% -------------------------------------------------------
+
+La figura~\ref{fig:arch_general} muestra la arquitectura de alto nivel del sistema. El principio de diseño central es que el frontend nunca se comunica directamente con ningún servicio externo: toda petición pasa por el backend de FastAPI, que actúa como única puerta de entrada y punto de orquestación. Esta decisión simplifica el control de versiones de la API, centraliza el manejo de errores y evita exponer los puertos internos de OSRM y OTP al navegador.
+
+\begin{figure}[htbp]
+  \centering
+  % \includegraphics[width=0.92\textwidth]{figures/arch_general.pdf}
+  \missingfigure{Diagrama de bloques: React/Leaflet $\rightarrow$ FastAPI $\rightarrow$ \{OSRM$\times$3, OTP, XGBoost\}. Con puertos y etiquetas de cada bloque.}
+  \caption{Arquitectura general del simulador de movilidad urbana.}
+  \label{fig:arch_general}
+\end{figure}
+
+El frontend expone la interfaz cartográfica al usuario y delega en el backend el cálculo de rutas, la consulta de horarios GTFS y la inferencia modal. El backend integra cuatro routers diferenciados: \texttt{/api/osrm} para rutas viarias por perfil, \texttt{/api/otp} para itinerarios multimodales, \texttt{/api/gtfs} para información estática de la red de transporte, y \texttt{/api/lpmc} para la inferencia de elección modal. Cada router encapsula la lógica de comunicación con su servicio subyacente y expone al frontend una interfaz homogénea independiente de los detalles de cada protocolo.
+
+% -------------------------------------------------------
+\section{Infraestructura y orquestación}
+\label{sec:arch_infra}
+% -------------------------------------------------------
+
+La infraestructura del sistema se define íntegramente en un fichero \texttt{docker-compose.yml} en la raíz del repositorio. El despliegue completo se obtiene con un único comando (\texttt{docker compose up -{}-build}), lo que elimina dependencias de entorno en la máquina anfitriona y garantiza reproducibilidad.
+
+\begin{figure}[htbp]
+  \centering
+  % \includegraphics[width=0.92\textwidth]{figures/arch_docker.pdf}
+  \missingfigure{Diagrama de servicios Docker Compose: frontend :5173, backend :8000, osrm-car :5000, osrm-bike :5001, osrm-foot :5002, otp :8080. Volúmenes montados en OSRM y OTP.}
+  \caption{Servicios Docker Compose y puertos expuestos.}
+  \label{fig:arch_docker}
+\end{figure}
+
+La tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos y su función en el sistema.
+
+\begin{table}[htbp]
+  \caption{Servicios Docker Compose del simulador.}
+  \label{tab:servicios_docker}
+  \centering
+  \begin{tabular}{llp{7cm}}
+    \hline
+    \textbf{Servicio} & \textbf{Puerto} & \textbf{Función} \\
+    \hline
+    \texttt{frontend}   & 5173 & Interfaz web React servida por Vite. \\
+    \texttt{backend}    & 8000 & API FastAPI, orquestación y lógica de negocio. \\
+    \texttt{osrm-car}   & 5000 & Motor OSRM con perfil de vehículo a motor. \\
+    \texttt{osrm-bike}  & 5001 & Motor OSRM con perfil de bicicleta. \\
+    \texttt{osrm-foot}  & 5002 & Motor OSRM con perfil peatonal. \\
+    \texttt{otp}        & 8080 & OpenTripPlanner 2.x con grafo multimodal de Toledo. \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Los servicios OSRM montan los grafos viarios preprocesados desde directorios locales mediante volúmenes Docker. OpenTripPlanner carga el grafo multimodal (\texttt{graph.obj}) generado a partir de los datos OSM de Castilla-La Mancha y el feed GTFS urbano de Toledo. Estos artefactos pesados no se versionan en el repositorio Git y deben generarse o descargarse antes del primer despliegue, según se describe en el anexo~\ref{anx:despliegue}.
+
+La razón por la que OSRM se instancia tres veces en lugar de usar un único servidor multiperfil es que la imagen oficial de OSRM no admite perfiles simultáneos: cada proceso solo puede servir el grafo con el que fue preprocesado. Esta limitación fue el detonante del cambio de la solución inicial basada en el servidor de demostración público, que únicamente ofrecía perfil de conducción, a la infraestructura local multiperfil descrita aquí.
+
+% -------------------------------------------------------
+\section{Backend: capa de orquestación}
+\label{sec:arch_backend}
+% -------------------------------------------------------
+
+El backend está implementado con FastAPI sobre Python y se organiza en cuatro routers, cada uno responsable de un dominio funcional. La separación en routers permite desarrollar, probar y documentar cada integración de forma independiente.
+
+El router \texttt{/api/osrm} recibe un par origen-destino con la lista de perfiles solicitados, consulta en paralelo las instancias OSRM correspondientes y devuelve al frontend las rutas con distancia, duración y geometría codificada para su representación cartográfica.
+
+El router \texttt{/api/otp} consulta el planificador multimodal y gestiona la paginación de itinerarios alternativos. La respuesta incluye el desglose por tramos (\textit{legs}), con tipo de modo, geometría, parada de inicio y fin, y agencia operadora cuando el tramo es de transporte público.
+
+El router \texttt{/api/gtfs} expone información estática de la red de transporte: listado de paradas, líneas, detalle de ruta y horarios. Estos datos se leen directamente del feed GTFS descomprimido en el backend, sin depender de OpenTripPlanner, lo que permite consultar la red aunque el grafo OTP no esté cargado.
+
+El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino más el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado, ejecuta la inferencia con el modelo XGBoost entrenado y devuelve las probabilidades por modo. Dispone además de un endpoint de depuración (\texttt{/api/lpmc/debug-features}) que expone el vector de características antes y después del escalado, lo que facilita la validación del pipeline de inferencia.
+
+% -------------------------------------------------------
+\section{Frontend: interfaz cartográfica}
+\label{sec:arch_frontend}
+% -------------------------------------------------------
+
+El frontend está desarrollado con React, Vite y TypeScript, e integra Leaflet para la representación cartográfica. La aplicación permite seleccionar un origen y un destino sobre el mapa mediante marcadores arrastrables, lanzar el cálculo de rutas para los cuatro modos disponibles y visualizar los resultados superpuestos sobre la cartografía.
+
+La comunicación con el backend se realiza mediante peticiones HTTP desde el propio cliente. El estado de la aplicación, incluyendo los puntos seleccionados, los resultados de rutas y los parámetros del perfil de usuario, se gestiona con los mecanismos de estado propios de React, sin necesidad de una capa de gestión de estado adicional dado el alcance del prototipo.
+
+Los segmentos de transporte público solo se muestran cuando el modo activo es transporte público, evitando solapamientos visuales con las rutas viarias. El color de cada línea GTFS se asigna de forma determinista a partir del identificador de ruta, garantizando consistencia visual entre sesiones sin depender de datos de color en el feed.
