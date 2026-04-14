@@ -1,4 +1,5 @@
 \chapter{Metodología}
+\label{ch:metodologia}
 
 Este capítulo recoge la gestión del proyecto con un enfoque SCRUM adaptado a un TFM individual. Se busca dejar trazabilidad clara de qué se planificó, qué se ejecutó, qué bloqueos aparecieron y qué decisiones técnicas se tomaron en cada iteración.
 
@@ -122,9 +123,9 @@ Como resultado, el proyecto dejó de depender de servicios públicos externos y 
 
 \textbf{Esfuerzo estimado}: 10--14 horas.
 
-El objetivo de esta iteración fue incorporar al proyecto la estructura básica de la red de transporte público urbano de Toledo a partir de los datos GTFS. Con ello se buscaba ampliar el alcance del simulador más allá de la red viaria y comenzar a trabajar con una representación operativa del servicio de autobuses urbanos.
+El objetivo de esta iteración fue incorporar la red de transporte público urbano de Toledo al simulador a partir del feed GTFS descargado desde el Punto de Acceso Nacional (NAP) del Ministerio de Transportes. Para ello se desarrolló el módulo de lectura \texttt{gtfs\_loader.py}, que parsea y mantiene en memoria la información de paradas, rutas, viajes y horarios, y se implementaron cuatro endpoints en el router \texttt{/api/gtfs}: listado de paradas con filtro opcional por bounding box, listado de líneas de la red, detalle de ruta con paradas ordenadas y trazado geométrico, y resumen de horarios por fecha.
 
-Este sprint permitió disponer de una primera capa de información de transporte público integrada en la aplicación y sentó la base necesaria para abordar posteriormente la planificación multimodal con OpenTripPlanner.
+En la capa de visualización se añadieron las paradas como marcadores circulares en el mapa con popup interactivo, desde el que el usuario puede consultar qué líneas dan servicio en cada parada. Este sprint no incluyó planificación de itinerarios, que se abordó en el sprint siguiente. Su resultado principal fue disponer de una representación operativa completa de la red de bus urbano de Toledo, desacoplada del grafo OTP, lo que permite consultar la red aunque el planificador no esté disponible.
 
 \subsection{Sprint 4: Integración de OpenTripPlanner para rutas multimodales}
 
@@ -136,15 +137,15 @@ Tras la incorporación del GTFS, este sprint se centró en habilitar el cálculo
 
 Esta fase supuso un salto cualitativo dentro del proyecto, ya que permitió integrar en una misma aplicación los modos viarios y el modo tránsito, haciendo posible una comparación más completa entre alternativas de viaje en el contexto urbano de Toledo.
 
-\subsection{Sprint 5: Diseño de una aplicación web para visualización y comparación modal}
+\subsection{Sprint 5: Diseño de la interfaz web y codificación visual por modo}
 
 \textbf{Fechas}: del 20 de diciembre de 2025 al 20 de febrero de 2026.
 
 \textbf{Esfuerzo estimado}: 8--12 horas.
 
-Este sprint estuvo orientado al diseño de una aplicación web capaz de presentar de forma clara los distintos modos de viaje y sus resultados asociados. Más que introducir nueva lógica de cálculo, la prioridad fue transformar el prototipo inicial en una interfaz más interpretable, útil para explorar escenarios y coherente con el objetivo del TFM como aplicación final.
+Este sprint se orientó a consolidar la experiencia de usuario y la legibilidad comparada de resultados. Las principales decisiones de diseño adoptadas fueron: codificación visual de rutas por modo (azul sólido para conducción, verde sólido para bicicleta y gris discontinuo para desplazamiento a pie); visualización de segmentos OTP diferenciada entre tramos en vehículo, representados en naranja, y tramos a pie, con la misma trama discontinua que el modo peatonal; cuatro basemaps seleccionables por el usuario (carto-light, OpenStreetMap estándar, OpenTopoMap y satélite Esri); y marcadores SVG personalizados para origen y destino con iconografía diferenciada.
 
-El resultado fue una mejora progresiva de la usabilidad y de la lectura comparada de resultados, reforzando el valor del simulador no solo como demostración técnica, sino como herramienta de análisis y apoyo a la toma de decisiones sobre movilidad.
+Se consolidó también el uso de TanStack Query para las peticiones al backend, que proporciona caché de respuestas, gestión declarativa de estados de carga y reintento automático en caso de error. Los segmentos de transporte público se restringieron a modo \textit{transit}, evitando solapamientos visuales con las rutas viarias. El resultado fue una interfaz directamente utilizable como herramienta de análisis, no solo como demostración técnica del sistema de enrutado.
 
 \subsection{Sprint 6: Diseño de un modelo de clasificación de modo de viaje y procesado de datos}
 
@@ -186,8 +187,16 @@ El objetivo de esta iteración fue integrar el módulo de inferencia modal dentr
 
 Esta integración representó la convergencia de las dos grandes líneas del TFM: por un lado, la construcción del simulador de movilidad urbana; por otro, el diseño y validación de modelos de clasificación. A partir de este punto, el proyecto quedó configurado como una aplicación final capaz de combinar cálculo de rutas, visualización cartográfica e inferencia modal en un mismo entorno de trabajo.
 
+% -------------------------------------------------------
+% SPRINTS ADICIONALES: añadir aquí si procede
+% -------------------------------------------------------
 
+\section{Cierre del ciclo de desarrollo}
+\label{sec:scrum_cierre}
 
+La secuencia de sprints descrita en este capítulo llevó el proyecto desde una primera validación de tecnologías de enrutado hasta un simulador funcional extremo a extremo, con integración de rutas viarias, transporte público multimodal y predicción de elección modal mediante aprendizaje automático. Cada iteración aportó un incremento concreto sobre la base anterior: el prototipo inicial de rutas se amplió con un servicio local multiperfil, se integró la red de transporte público de Toledo, se incorporó la planificación multimodal con OTP, se consolidó la interfaz y, finalmente, se conectó el módulo de inferencia con el resto del sistema.
+
+La arquitectura resultante y las decisiones técnicas adoptadas a lo largo de este proceso se describen en el capítulo~\ref{ch:arquitectura}. Los detalles de implementación de cada componente se recogen en el capítulo~\ref{ch:implementacion}.
 
 % \section{Sprint reviews y retrospectivas}
 

@@ -1,33 +1,5 @@
-% \chapter{Arquitectura/Diseño de la solución}
-
-% \section{Arquitectura general del sistema}
-% % \subsection{Vista de alto nivel}
-% % \subsubsection{Componentes y relaciones}
-
-% \section{Diseño del backend}
-% % \subsection{Estructura interna de FastAPI}
-% % \subsubsection{Capas y responsabilidades}
-
-% % \subsection{Diseño de API}
-% % \subsubsection{Contratos de entrada y salida}
-
-% \section{Diseño del frontend}
-% % \subsection{Estructura de componentes}
-% % \subsubsection{Gestión de estado y peticiones}
-
-% \section{Integración OSRM, OTP y GTFS}
-% % \subsection{Flujo de datos de enrutado}
-% % \subsubsection{Transformaciones y normalización}
-
-% \section{Diseño de integración del modelo IA}
-% % \subsection{Contrato para inferencia}
-% % \subsubsection{Variables de entrada y salida}
-
-% \section{Decisiones técnicas y trade-offs}
-% % \subsection{Alternativas consideradas}
-% % \subsubsection{Justificación de la opción elegida}
-
 \chapter{Arquitectura del sistema}
+\label{ch:arquitectura}
 
 Este capítulo describe la organización estructural del simulador: los componentes que lo forman, cómo se relacionan entre sí y las decisiones de diseño que condicionan esa organización. El detalle de implementación de cada componente se desarrolla en el capítulo~\ref{ch:implementacion}.
 
@@ -38,7 +10,7 @@ El sistema está compuesto por cinco bloques funcionales: una interfaz web, un b
 \label{sec:arch_vision_general}
 % -------------------------------------------------------
 
-La figura~\ref{fig:arch_general} muestra la arquitectura de alto nivel del sistema. El principio de diseño central es que el frontend nunca se comunica directamente con ningún servicio externo: toda petición pasa por el backend de FastAPI, que actúa como única puerta de entrada y punto de orquestación. Esta decisión simplifica el control de versiones de la API, centraliza el manejo de errores y evita exponer los puertos internos de OSRM y OTP al navegador.
+La Figura~\ref{fig:arch_general} muestra la arquitectura de alto nivel del sistema. El principio de diseño central es que el frontend nunca se comunica directamente con ningún servicio externo: toda petición pasa por el backend de FastAPI, que actúa como única puerta de entrada y punto de orquestación. Esta decisión simplifica el control de versiones de la API, centraliza el manejo de errores y evita exponer los puertos internos de OSRM y OTP al navegador.
 
 \begin{figure}[htbp]
   \centering
@@ -65,7 +37,7 @@ La infraestructura del sistema se define íntegramente en un fichero \texttt{doc
   \label{fig:arch_docker}
 \end{figure}
 
-La tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos y su función en el sistema.
+La Tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos y su función en el sistema.
 
 \begin{table}[htbp]
   \caption{Servicios Docker Compose del simulador.}
@@ -94,23 +66,124 @@ La razón por la que OSRM se instancia tres veces en lugar de usar un único ser
 \label{sec:arch_backend}
 % -------------------------------------------------------
 
-El backend está implementado con FastAPI sobre Python y se organiza en cuatro routers, cada uno responsable de un dominio funcional. La separación en routers permite desarrollar, probar y documentar cada integración de forma independiente.
+El backend está implementado con FastAPI sobre Python y se organiza en cuatro routers, cada uno responsable de un dominio funcional. La separación en routers permite desarrollar, probar y documentar cada integración de forma independiente. La Tabla~\ref{tab:endpoints_api} recoge los endpoints principales expuestos por cada router.
 
-El router \texttt{/api/osrm} recibe un par origen-destino con la lista de perfiles solicitados, consulta en paralelo las instancias OSRM correspondientes y devuelve al frontend las rutas con distancia, duración y geometría codificada para su representación cartográfica.
+\begin{table}[htbp]
+  \caption{Endpoints principales de la API REST del backend.}
+  \label{tab:endpoints_api}
+  \centering
+  \begin{tabular}{llp{6.5cm}}
+    \hline
+    \textbf{Método} & \textbf{Ruta} & \textbf{Descripción} \\
+    \hline
+    POST & \texttt{/api/osrm/routes}                  & Rutas viarias multimodales (OSRM). \\
+    POST & \texttt{/api/otp/routes}                   & Itinerario de transporte público (OTP). \\
+    GET  & \texttt{/api/gtfs/stops}                   & Listado de paradas con filtro bbox. \\
+    GET  & \texttt{/api/gtfs/routes}                  & Listado de líneas de la red. \\
+    GET  & \texttt{/api/gtfs/routes/\{id\}}           & Detalle de ruta: paradas y trazado. \\
+    GET  & \texttt{/api/gtfs/routes/\{id\}/schedule}  & Horarios de una línea por fecha. \\
+    POST & \texttt{/api/lpmc/predict}                 & Inferencia de elección modal. \\
+    POST & \texttt{/api/lpmc/debug-features}          & Vector de características antes/después del escalado. \\
+    GET  & \texttt{/health}                           & Comprobación de disponibilidad. \\
+    \hline
+  \end{tabular}
+\end{table}
 
-El router \texttt{/api/otp} consulta el planificador multimodal y gestiona la paginación de itinerarios alternativos. La respuesta incluye el desglose por tramos (\textit{legs}), con tipo de modo, geometría, parada de inicio y fin, y agencia operadora cuando el tramo es de transporte público.
+El router \texttt{/api/osrm} recibe un par origen-destino con la lista de perfiles solicitados, consulta en paralelo las instancias OSRM correspondientes y devuelve al frontend las rutas con distancia, duración y geometría decodificada para su representación cartográfica.
 
-El router \texttt{/api/gtfs} expone información estática de la red de transporte: listado de paradas, líneas, detalle de ruta y horarios. Estos datos se leen directamente del feed GTFS descomprimido en el backend, sin depender de OpenTripPlanner, lo que permite consultar la red aunque el grafo OTP no esté cargado.
+El router \texttt{/api/otp} consulta el planificador multimodal y gestiona la paginación de itinerarios alternativos. La respuesta incluye el desglose por tramos (\textit{legs}), con tipo de modo, geometría, parada de inicio y fin, y agencia operadora cuando el tramo es de transporte público. Los itinerarios se ordenan por duración y se selecciona automáticamente el primero que incluya al menos un tramo de transporte público; si ninguno lo incluye, se devuelve el de menor duración.
 
-El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino más el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado, ejecuta la inferencia con el modelo XGBoost entrenado y devuelve las probabilidades por modo. Dispone además de un endpoint de depuración (\texttt{/api/lpmc/debug-features}) que expone el vector de características antes y después del escalado, lo que facilita la validación del pipeline de inferencia.
+El router \texttt{/api/gtfs} expone información estática de la red de transporte: listado de paradas con sus líneas asociadas, listado de rutas, detalle de ruta con paradas ordenadas y trazado geométrico, y resumen de horarios por fecha. Estos datos se leen directamente del feed GTFS descomprimido en el backend, sin depender de OpenTripPlanner, lo que permite consultar la red aunque el grafo OTP no esté disponible.
+
+El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino junto con el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado parcial, ejecuta la inferencia con el modelo XGBoost y devuelve las probabilidades por modo. El endpoint \texttt{/debug-features} expone el vector de características antes y después del escalado, facilitando la validación del pipeline de inferencia.
 
 % -------------------------------------------------------
 \section{Frontend: interfaz cartográfica}
 \label{sec:arch_frontend}
 % -------------------------------------------------------
 
-El frontend está desarrollado con React, Vite y TypeScript, e integra Leaflet para la representación cartográfica. La aplicación permite seleccionar un origen y un destino sobre el mapa mediante marcadores arrastrables, lanzar el cálculo de rutas para los cuatro modos disponibles y visualizar los resultados superpuestos sobre la cartografía.
+El frontend está desarrollado con React, Vite y TypeScript. La aplicación se estructura en dos componentes principales: \texttt{App}, que concentra el estado global y la lógica de negocio del cliente, y \texttt{MapView}, que encapsula la representación cartográfica mediante React-Leaflet.
 
-La comunicación con el backend se realiza mediante peticiones HTTP desde el propio cliente. El estado de la aplicación, incluyendo los puntos seleccionados, los resultados de rutas y los parámetros del perfil de usuario, se gestiona con los mecanismos de estado propios de React, sin necesidad de una capa de gestión de estado adicional dado el alcance del prototipo.
+\texttt{App} gestiona los puntos de origen y destino, el modo de transporte activo, los resultados de rutas, la capa GTFS y el perfil de usuario para la inferencia. Las peticiones al backend se realizan con TanStack Query (\texttt{useQuery} y \texttt{useMutation}), que proporciona caché, gestión de estados de carga y reintento automático. El estado local de React es suficiente para el alcance del prototipo: no existe flujo de datos compartido entre componentes independientes que justifique una biblioteca adicional de gestión de estado.
 
-Los segmentos de transporte público solo se muestran cuando el modo activo es transporte público, evitando solapamientos visuales con las rutas viarias. El color de cada línea GTFS se asigna de forma determinista a partir del identificador de ruta, garantizando consistencia visual entre sesiones sin depender de datos de color en el feed.
+\texttt{MapView} recibe el estado relevante como \textit{props} y se encarga exclusivamente de la renderización cartográfica: marcadores de origen y destino, polilíneas de ruta coloreadas según el modo activo, paradas GTFS con popups interactivos y segmentos OTP diferenciados visualmente entre tramos a pie y tramos en vehículo. Los segmentos de transporte público solo se muestran cuando el modo activo es \textit{transit}, evitando solapamientos visuales con las rutas viarias. La capa de fondo es configurable entre cuatro basemaps: carto-light, OpenStreetMap estándar, OpenTopoMap y satélite Esri.
+
+% -------------------------------------------------------
+\section{Pipeline de inferencia modal}
+\label{sec:arch_pipeline_inferencia}
+% -------------------------------------------------------
+
+La inferencia de elección modal es la operación más compleja del sistema porque requiere coordinar tres servicios externos de forma concurrente para construir el vector de entrada al modelo. La Figura~\ref{fig:pipeline_inferencia} ilustra el flujo completo.
+
+\begin{figure}[htbp]
+  \centering
+  \missingfigure{Diagrama de flujo del pipeline de inferencia: \texttt{POST /api/lpmc/predict} $\rightarrow$ \texttt{asyncio.gather}(OSRM$\times$3, OTP) $\rightarrow$ \texttt{build\_route\_features} $\rightarrow$ \texttt{build\_feature\_frame} $\rightarrow$ escalado parcial $\rightarrow$ \texttt{XGBoost.predict\_proba} $\rightarrow$ respuesta JSON.}
+  \caption{Pipeline de inferencia de elección modal.}
+  \label{fig:pipeline_inferencia}
+\end{figure}
+
+Al recibir una petición \texttt{POST /api/lpmc/predict}, el backend lanza en paralelo cuatro consultas asíncronas mediante \texttt{asyncio.gather}: una a cada una de las tres instancias OSRM (conducción, bicicleta, a pie) y una a OpenTripPlanner. Con los resultados se construye el vector de características de ruta, se añaden las variables sociodemográficas del perfil recibido en la petición y se ensambla el vector completo de entrada al modelo.
+
+Las variables de entrada se dividen en dos grupos. El primero comprende las variables de ruta, derivadas de OSRM y OTP, que caracterizan el tiempo y la distancia de cada modo para el par origen-destino concreto. El segundo comprende las variables sociodemográficas y contextuales, que el usuario introduce a través del panel lateral de la interfaz. La Tabla~\ref{tab:lpmc_features} describe ambos grupos.
+
+\begin{table}[htbp]
+  \caption{Variables de entrada al modelo de elección modal. Las variables de ruta se derivan automáticamente de OSRM y OTP; las sociodemográficas las aporta el usuario.}
+  \label{tab:lpmc_features}
+  \centering
+  \begin{tabular}{llp{5.5cm}}
+    \hline
+    \textbf{Variable} & \textbf{Tipo / Rango} & \textbf{Descripción} \\
+    \hline
+    \multicolumn{3}{l}{\textit{Variables de ruta (derivadas de OSRM y OTP)}} \\
+    \hline
+    \texttt{distance}              & float, m       & Distancia en coche (OSRM driving). \\
+    \texttt{dur\_driving}          & float, s       & Tiempo de conducción (OSRM driving). \\
+    \texttt{dur\_cycling}          & float, s       & Tiempo en bicicleta (OSRM cycling). \\
+    \texttt{dur\_walking}          & float, s       & Tiempo a pie hasta destino (OSRM foot). \\
+    \texttt{dur\_pt\_access}       & float, s       & Tiempo del primer tramo a pie hasta la parada (OTP). \\
+    \texttt{dur\_pt\_bus}          & float, s       & Tiempo acumulado en autobús (OTP). \\
+    \texttt{dur\_pt\_rail}         & float, s       & Tiempo acumulado en ferroviario (OTP). \\
+    \texttt{dur\_pt\_int\_waiting} & float, s       & Tiempo de espera en transbordos (OTP). \\
+    \texttt{dur\_pt\_int\_walking} & float, s       & Desplazamiento a pie entre transbordos (OTP). \\
+    \texttt{pt\_n\_interchanges}   & int, $\geq 0$  & Número de transbordos (OTP). \\
+    \hline
+    \multicolumn{3}{l}{\textit{Variables sociodemográficas y contextuales (aportadas por el usuario)}} \\
+    \hline
+    \texttt{age}                   & int, [16, 100] & Edad del viajero. \\
+    \texttt{female}                & int, \{0, 1\}  & Sexo (1\,=\,mujer). \\
+    \texttt{driving\_license}      & int, \{0, 1\}  & Posesión de carnet de conducir. \\
+    \texttt{car\_ownership}        & int, [0, 3]    & Número de coches en el hogar. \\
+    \texttt{day\_of\_week}         & int, [1, 7]    & Día de la semana. \\
+    \texttt{start\_time\_linear}   & float, [0, 24] & Hora de inicio del viaje. \\
+    \texttt{cost\_transit}         & float, $\geq 0$& Coste del billete de transporte público. \\
+    \texttt{cost\_driving\_total}  & float, $\geq 0$& Coste total estimado del viaje en coche. \\
+    \texttt{purpose}               & cat. (one-hot) & Motivo del viaje: B, HBE, HBO, HBW, NHBO. \\
+    \texttt{fueltype}              & cat. (one-hot) & Tipo de combustible: Average, Diesel, Hybrid, Petrol. \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Las variables continuas que presentaban distribución asimétrica en el conjunto de entrenamiento se normalizan con un escalado parcial aplicado solo a las columnas correspondientes, preservando las variables binarias y de conteo sin transformar. El modelo devuelve un vector de cuatro probabilidades correspondientes a los modos \textit{walk}, \textit{cycle}, \textit{pt} y \textit{drive}; el modo predicho es el de mayor probabilidad.
+
+La variante activa del modelo se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT}. El valor por defecto (\texttt{nohh}) carga el modelo entrenado sin \texttt{household\_id} como variable de entrada, variante apropiada para inferencia en producción ya que ese identificador no está disponible en tiempo de ejecución. La variante \texttt{legacy} mantiene compatibilidad con los artefactos originales del entrenamiento y neutraliza \texttt{household\_id} fijándolo a cero.
+
+% -------------------------------------------------------
+\section{Decisiones técnicas}
+\label{sec:arch_decisiones}
+% -------------------------------------------------------
+
+A lo largo del desarrollo se tomaron varias decisiones de diseño que condicionan la arquitectura actual.
+
+\textbf{OSRM local frente al servidor de demostración.} La solución inicial utilizaba el demoserver público de OSRM, que solo proporciona el perfil de conducción. La imposibilidad de obtener tiempos de bicicleta y desplazamiento a pie, variables imprescindibles para el modelo LPMC, obligó a desplegar OSRM localmente con tres perfiles independientes. El coste es un mayor requisito de almacenamiento y memoria en tiempo de ejecución, compensado por la autonomía completa sobre los datos y la ausencia de límites de cuota.
+
+\textbf{Tres instancias OSRM en lugar de una.} La imagen oficial de OSRM no admite múltiples perfiles en un único proceso: cada instancia solo puede servir el grafo con el que fue preprocesada mediante \texttt{osrm-extract} y \texttt{osrm-partition}. La solución adoptada es desplegar tres contenedores independientes, cada uno con su grafo, mapeados a puertos distintos del host.
+
+\textbf{Fecha y hora fijas en OTP.} OpenTripPlanner calcula itinerarios en función de los calendarios de servicio del feed GTFS. Usar la fecha y hora reales introducía inconsistencias: en fines de semana o festivos el servicio es reducido o inexistente, lo que hacía que OTP devolviera itinerarios atípicos o ninguno. La solución adoptada es usar una fecha laborable fija (\texttt{2025-12-01}) y una hora de alta frecuencia de servicio (\texttt{12:00}), garantizando resultados representativos del servicio habitual.
+
+\textbf{Variante nohh del modelo LPMC.} El modelo original incluía \texttt{household\_id} como variable de entrada, lo que imposibilita su uso en inferencia ya que el simulador no tiene acceso a ese identificador. Se entrenó una variante alternativa excluyendo esa variable (\texttt{nohh}), que es la activa por defecto. La variante original se conserva como respaldo y el sistema puede alternar entre ambas mediante variable de entorno.
+
+\textbf{Colores de línea GTFS deterministas.} El feed GTFS de Toledo no incluye de forma consistente los campos \texttt{route\_color} y \texttt{route\_text\_color}. Para garantizar consistencia visual entre sesiones, el color de cada línea se deriva de forma determinista a partir del \texttt{route\_id} mediante una función de hash, de modo que la misma línea siempre se muestra con el mismo color independientemente del estado del servidor.
+
+\textbf{Carga perezosa de artefactos del modelo.} El modelo XGBoost y el escalador se cargan desde disco la primera vez que se recibe una petición de inferencia y se mantienen en caché a nivel de módulo durante toda la vida del proceso. Esta estrategia de carga perezosa (\textit{lazy loading}) evita aumentar el tiempo de arranque del contenedor y garantiza que los artefactos se cargan exactamente una vez, independientemente del número de peticiones concurrentes que sirva el servidor.
+
+\textbf{Penalización de variables PT sin itinerario real.} Cuando OTP no encuentra un itinerario con transporte público, las variables de ruta PT (\texttt{dur\_pt\_access}, \texttt{dur\_pt\_bus}, \texttt{dur\_pt\_rail}, \texttt{pt\_n\_interchanges}) toman valor cero, lo que puede inducir al modelo a predecir \textit{pt} como modo mayoritario en trayectos sin servicio real. La solución, pendiente de implementar en el momento de escritura, consiste en asignar un valor de penalización alto a estas variables cuando OTP no devuelva un itinerario con al menos un tramo de transporte público.
