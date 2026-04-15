@@ -44,9 +44,8 @@ Una vez descritas las fuentes de datos que permiten representar la red urbana y 
 
 OSRM (\textit{Open Source Routing Machine}) es uno de los motores abiertos más utilizados para cálculo de rutas sobre red viaria OSM, especialmente cuando se necesitan tiempos de respuesta bajos y gran volumen de consultas \cite{OSRMDocs,OSRMGitHub}. Su interés en un simulador de movilidad no está solo en obtener una ruta entre dos puntos, sino en poder generar de forma sistemática atributos de viaje (tiempo, distancia o matrices origen-destino) que después se integran en análisis y modelos predictivos.
 
-La principal fortaleza técnica de OSRM es su enfoque de preprocesado: antes de servir consultas, el sistema transforma el extracto \texttt{.osm.pbf}, que es el formato binario comprimido habitualmente utilizado para distribuir datos de OpenStreetMap, en estructuras optimizadas de búsqueda. Este diseño desplaza coste al inicio, pero permite consultas rápidas y estables durante la fase de explotación. Además, OSRM trabaja con perfiles de movilidad diferenciados (por ejemplo, coche, bicicleta y a pie), lo que permite modelar de forma explícita costes de viaje distintos por modo. A nivel interno, OSRM se apoya en algoritmos de aceleración de rutas: MLD (\textit{Multi-Level Dijkstra}), que divide la red en niveles para reducir el espacio de búsqueda en cada consulta, y CH (\textit{Contraction Hierarchies}), que simplifica el grafo con atajos para acelerar rutas largas. 
-% En este trabajo se prioriza MLD por su equilibrio entre rendimiento y flexibilidad, dejando CH como alternativa 
-\cite{Delling2017CRP,Geisberger2008CH}.
+La principal fortaleza técnica de OSRM es su enfoque de preprocesado: antes de servir consultas, el sistema transforma el extracto \texttt{.osm.pbf}, que es el formato binario comprimido habitualmente utilizado para distribuir datos de OpenStreetMap, en estructuras optimizadas de búsqueda. Este diseño desplaza coste al inicio, pero permite consultas rápidas y estables durante la fase de explotación. Además, OSRM trabaja con perfiles de movilidad diferenciados (por ejemplo, coche, bicicleta y a pie), lo que permite modelar de forma explícita costes de viaje distintos por modo. A nivel interno, OSRM se apoya en algoritmos de aceleración de rutas: MLD (\textit{Multi-Level Dijkstra}), que divide la red en niveles para reducir el espacio de búsqueda en cada consulta, y CH (\textit{Contraction Hierarchies}), que simplifica el grafo con atajos para acelerar rutas largas~\cite{Delling2017CRP,Geisberger2008CH}.
+% En este trabajo se prioriza MLD por su equilibrio entre rendimiento y flexibilidad, dejando CH como alternativa
 
 % En este TFM, lo más importante no es solo la velocidad, sino el control local del proceso. Ejecutar OSRM en infraestructura propia permite fijar exactamente qué versión de software, qué versión de red y qué perfiles se usan en cada experimento. Eso evita cambios externos no controlados y hace que los resultados sean comparables entre iteraciones. En un flujo con muchas simulaciones e inferencias, este control local mejora la trazabilidad y la reproducibilidad de forma directa.
 
@@ -75,14 +74,13 @@ Además de Google Maps Platform, el ecosistema actual incluye otras alternativas
 
 También existen servicios intermedios como openrouteservice, que proporcionan API pública y, al mismo tiempo, opciones de despliegue propio \cite{OpenRouteServiceAPI,OpenRouteServiceRestrictions}. Este tipo de solución puede ser útil como puente entre experimentación rápida y control de infraestructura, aunque con sus propias restricciones de uso en modalidad pública.
 
-La tabla~\ref{tab:routing_comparison} resume esta comparación y la decisión tecnológica adoptada en el proyecto. Para un simulador académico orientado a experimentación, trazabilidad y ejecución repetida de escenarios, la combinación OSRM + OTP en infraestructura propia ofrece un equilibrio más adecuado que una API comercial gestionada, aunque implique una mayor complejidad de despliegue.
+La Tabla~\ref{tab:routing_comparison} resume esta comparación y la decisión tecnológica adoptada en el proyecto. Para un simulador académico orientado a experimentación, trazabilidad y ejecución repetida de escenarios, la combinación OSRM + OTP en infraestructura propia ofrece un equilibrio más adecuado que una API comercial gestionada, aunque implique una mayor complejidad de despliegue.
 
 \begin{table}[ht]
     \centering
     \caption{Comparación resumida de las soluciones de enrutado consideradas en este trabajo. Elaboración propia a partir de \cite{OSRMDocs,OTPDocs,GoogleRoutesAPI,GoogleMapsPricing}.}
     \label{tab:routing_comparison}
-    \renewcommand{\arraystretch}{1.2}
-    \begin{tabular}{|L{2.0cm}|L{2.8cm}|L{2.8cm}|L{4.0cm}|}
+    \begin{tabular}{L{2.0cm}L{2.8cm}L{2.8cm}L{4.0cm}}
         \hline
         \textbf{Solución} & \textbf{Tipo de red} & \textbf{Coste de uso} & \textbf{Adecuación al TFM} \\
         \hline
@@ -197,6 +195,8 @@ Las redes neuronales profundas (\textit{Deep Neural Networks}, DNN) constituyen 
 A diferencia de los modelos basados en árboles, las redes neuronales permiten aprender representaciones internas de los datos a través de varias capas ocultas, lo que facilita capturar relaciones complejas entre variables. Esta capacidad de modelar interacciones no lineales ha motivado su aplicación en numerosos problemas de predicción y clasificación, incluyendo el análisis del comportamiento de los viajeros.
 
 En problemas de elección modal, las redes neuronales profundas pueden utilizarse para estimar la probabilidad de seleccionar cada modo de transporte a partir de atributos del desplazamiento y características sociodemográficas del usuario. Aunque estos modelos suelen requerir mayor volumen de datos y un proceso de ajuste más cuidadoso que los métodos basados en árboles, también ofrecen una elevada flexibilidad para capturar patrones complejos presentes en los datos.
+
+Los tres enfoques descritos en esta sección (Random Forest, Gradient Boosting y redes neuronales profundas) se evalúan de forma comparativa sobre el dataset LPMC. Su entrenamiento, ajuste e integración en el simulador de movilidad se detallan en el capítulo~\ref{ch:implementacion}.
 
 % En este trabajo, las redes neuronales profundas se consideran como una posible extensión del sistema de predicción implementado en el simulador de movilidad. La arquitectura del sistema permite integrar distintos modelos de clasificación, lo que abre la posibilidad de incorporar en futuras versiones modelos neuronales entrenados sobre los mismos atributos de viaje utilizados por los métodos basados en árboles.
 
