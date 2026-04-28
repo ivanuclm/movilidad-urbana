@@ -99,7 +99,7 @@ def main() -> None:
 
     if best_params:
         model_params = dict(best_params)
-        print("\nUsando hiperparámetros afinados del profesor.")
+        print("\nUsando hiperparámetros desde lpmc_xgb_best_params.json.")
     else:
         print("\nNo se encontró lpmc_xgb_best_params.json; usando baseline sencillo.")
         model_params = {
@@ -111,7 +111,7 @@ def main() -> None:
             "learning_rate": 0.1,
             "subsample": 0.8,
             "colsample_bytree": 0.8,
-            "random_state": 42,
+            "random_state": 48151623,
             "n_jobs": -1,
         }
 

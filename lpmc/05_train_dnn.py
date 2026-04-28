@@ -80,8 +80,14 @@ def build_model(n_features: int):
     return model
 
 
+RANDOM_STATE = 481516
+
+
 def main() -> None:
     import tensorflow as tf
+
+    tf.random.set_seed(RANDOM_STATE)
+    np.random.seed(RANDOM_STATE)
 
     train_path = DATA_DIR / "LPMC_train.csv"
     test_path = DATA_DIR / "LPMC_test.csv"

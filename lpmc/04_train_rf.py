@@ -46,7 +46,7 @@ DEFAULT_PARAMS: dict = {
     "min_samples_leaf": 2,
     "max_features": "sqrt",
     "n_jobs": -1,
-    "random_state": 42,
+    "random_state": 481516,
 }
 
 
