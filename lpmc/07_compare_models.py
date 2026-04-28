@@ -24,15 +24,15 @@ ARTIFACTS_DIR = BASE_DIR / "artifacts"
 MODELS = [
     {
         "label": "Random Forest",
-        "metrics_file": "rf_lpmc_metrics_nohh.json",
+        "metrics_file": "rf_lpmc_metrics.json",
     },
     {
         "label": "XGBoost",
-        "metrics_file": "xgb_lpmc_metrics_nohh.json",
+        "metrics_file": "xgb_lpmc_metrics.json",
     },
     {
         "label": "DNN",
-        "metrics_file": "dnn_lpmc_metrics_nohh.json",
+        "metrics_file": "dnn_lpmc_metrics.json",
     },
 ]
 
@@ -49,15 +49,15 @@ def pct(value: float) -> str:
     return f"{value * 100:.2f}"
 
 
-def print_table(rows: list[dict], split: str) -> None:
+def print_table(rows: list[dict], split: str, display_name: str) -> None:
     header = f"{'Modelo':<18}  {'Accuracy':>10}  {'GMPCA':>8}"
     sep = "-" * len(header)
-    print(f"\n  {split.upper()} SET")
+    print(f"\n  {display_name}")
     print(f"  {sep}")
     print(f"  {header}")
     print(f"  {sep}")
     for row in rows:
-        if row["metrics"] is None:
+        if row["metrics"] is None or row["metrics"].get(split) is None:
             print(f"  {row['label']:<18}  {'(no entrenado)':>10}")
         else:
             m = row["metrics"][split]
@@ -76,13 +76,11 @@ def build_latex_table(rows: list[dict], split: str, caption: str, label: str) ->
     lines.append(r"Modelo & Accuracy (\%) & GMPCA (\%) \\")
     lines.append(r"\midrule")
     for row in rows:
-        if row["metrics"] is None:
+        m = (row["metrics"] or {}).get(split)
+        if m is None:
             lines.append(f"{row['label']} & -- & -- \\\\")
         else:
-            m = row["metrics"][split]
-            acc = pct(m["accuracy"])
-            gmpca = pct(m["gmpca"])
-            lines.append(f"{row['label']} & {acc} & {gmpca} \\\\")
+            lines.append(f"{row['label']} & {pct(m['accuracy'])} & {pct(m['gmpca'])} \\\\")
     lines.append(r"\bottomrule")
     lines.append(r"\end{tabular}")
     lines.append(r"\end{table}")
@@ -97,8 +95,8 @@ def main() -> None:
         if metrics is None:
             print(f"[AVISO] No encontrado: {model_def['metrics_file']} — modelo no entrenado todavía.")
 
-    print_table(rows, "train")
-    print_table(rows, "test")
+    print_table(rows, "train_cv", "TRAIN (5-fold GroupKFold CV, household_id como grupo)")
+    print_table(rows, "test", "TEST SET")
 
     # JSON consolidado
     consolidated = {
@@ -113,8 +111,8 @@ def main() -> None:
     # LaTeX train
     latex_train = build_latex_table(
         rows,
-        split="train",
-        caption="Resultados en el conjunto de entrenamiento (dataset LPMC)",
+        split="train_cv",
+        caption="Resultados en entrenamiento con validación cruzada de 5 pliegues agrupada por hogar (dataset LPMC)",
         label="tab:lpmc_train_results",
     )
     out_train = ARTIFACTS_DIR / "lpmc_comparison_train.tex"

@@ -78,44 +78,27 @@ def _resolve_model_paths() -> tuple[Path, Path]:
         return Path(model_override), Path(scaler_override)
 
     models_dir = _project_root() / "lpmc" / "models"
-    variant = os.environ.get("LPMC_MODEL_VARIANT", "nohh").strip().lower()
-    if variant == "legacy":
+    variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
+    if variant == "rf":
         model_candidates = [
-            models_dir / "xgb_lpmc_tuned.joblib",
-            models_dir / "xgb_lpmc_baseline.joblib",
-        ]
-        scaler_candidates = [
-            models_dir / "xgb_lpmc_scaler.joblib",
-        ]
-    elif variant == "rf":
-        model_candidates = [
-            models_dir / "rf_lpmc_nohh.joblib",
             models_dir / "rf_lpmc.joblib",
         ]
         scaler_candidates = [
-            models_dir / "rf_lpmc_scaler_nohh.joblib",
             models_dir / "rf_lpmc_scaler.joblib",
         ]
     elif variant == "dnn":
         model_candidates = [
-            models_dir / "dnn_lpmc_nohh.joblib",
             models_dir / "dnn_lpmc.joblib",
         ]
         scaler_candidates = [
-            models_dir / "dnn_lpmc_scaler_nohh.joblib",
             models_dir / "dnn_lpmc_scaler.joblib",
         ]
     else:
-        # Default: XGBoost sin household_id.
+        # "xgb" (default)
         model_candidates = [
-            models_dir / "xgb_lpmc_tuned_nohh.joblib",
-            models_dir / "xgb_lpmc_baseline_nohh.joblib",
-            # Fallback to legacy artifacts if nohh artifacts are not present.
-            models_dir / "xgb_lpmc_tuned.joblib",
-            models_dir / "xgb_lpmc_baseline.joblib",
+            models_dir / "xgb_lpmc.joblib",
         ]
         scaler_candidates = [
-            models_dir / "xgb_lpmc_scaler_nohh.joblib",
             models_dir / "xgb_lpmc_scaler.joblib",
         ]
 

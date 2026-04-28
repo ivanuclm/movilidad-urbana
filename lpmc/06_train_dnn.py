@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# El modelo Keras se guarda en models/dnn_lpmc_nohh.keras.
+# El modelo Keras se guarda en models/dnn_lpmc.keras.
 # El bundle joblib solo contiene la ruta al .keras y los feature_names;
 # el backend crea el wrapper en tiempo de carga (KerasModalWrapper en lpmc_inference.py).
 
@@ -12,6 +12,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
@@ -19,6 +20,8 @@ DATA_DIR = BASE_DIR / "data" / "preprocessed"
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 MODELS_DIR = BASE_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+N_CV_FOLDS = 5
 
 SCALED_FEATURES = [
     "day_of_week",
@@ -45,6 +48,15 @@ def gmpca_from_proba(proba: np.ndarray, y_true: np.ndarray) -> float:
     proba = np.clip(proba, 1e-12, 1.0)
     log_like = np.log(proba[np.arange(len(y_true)), y_true]).sum()
     return float(np.exp(log_like / len(y_true)))
+
+
+def scale(X_tr: pd.DataFrame, X_val: pd.DataFrame, cols: list[str]):
+    sc = StandardScaler()
+    Xts = X_tr.copy()
+    Xvs = X_val.copy()
+    Xts[cols] = sc.fit_transform(X_tr[cols].astype(float))
+    Xvs[cols] = sc.transform(X_val[cols].astype(float))
+    return Xts, Xvs, sc
 
 
 def build_model(n_features: int):
@@ -84,13 +96,11 @@ def main() -> None:
     y_train = train[target_col].astype(int).values
     y_test = test[target_col].astype(int).values
 
-    X_train = train.drop(columns=[target_col])
-    X_test = test.drop(columns=[target_col])
+    # household_id: solo para GroupKFold, nunca entra como feature.
+    groups = train["household_id"].values if "household_id" in train.columns else None
 
-    drop_household = os.environ.get("DROP_HOUSEHOLD", "1") == "1"
-    if drop_household:
-        X_train = X_train.drop(columns=["household_id"], errors="ignore")
-        X_test = X_test.drop(columns=["household_id"], errors="ignore")
+    X_train = train.drop(columns=[target_col, "household_id"], errors="ignore")
+    X_test = test.drop(columns=[target_col, "household_id"], errors="ignore")
 
     for c in set(X_train.columns) - set(X_test.columns):
         X_test[c] = 0
@@ -100,94 +110,111 @@ def main() -> None:
 
     scaled_features = [c for c in SCALED_FEATURES if c in X_train.columns]
     feature_names = X_train.columns.tolist()
-    print(f"\nFeatures totales: {len(feature_names)}, a escalar: {len(scaled_features)}")
-
-    scaler = StandardScaler()
-    X_train_scaled = X_train.copy()
-    X_test_scaled = X_test.copy()
-    X_train_scaled[scaled_features] = scaler.fit_transform(X_train[scaled_features].astype(float))
-    X_test_scaled[scaled_features] = scaler.transform(X_test[scaled_features].astype(float))
-
-    X_train_arr = X_train_scaled.values.astype(np.float32)
-    X_test_arr = X_test_scaled.values.astype(np.float32)
+    n_features = len(feature_names)
+    print(f"\nFeatures totales: {n_features}, a escalar: {len(scaled_features)}")
 
     epochs = int(os.environ.get("DNN_EPOCHS", "100"))
     batch_size = int(os.environ.get("DNN_BATCH_SIZE", "512"))
 
-    model = build_model(X_train_arr.shape[1])
+    def make_callbacks():
+        return [
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_loss", patience=10, restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5
+            ),
+        ]
+
+    # --- 5-fold GroupKFold CV (métricas de entrenamiento) ---
+    cv_accs: list[float] = []
+    cv_gmpcas: list[float] = []
+
+    if groups is not None:
+        print(f"\n{N_CV_FOLDS}-fold GroupKFold CV (household_id como grupo)...")
+        gkf = GroupKFold(n_splits=N_CV_FOLDS)
+        for fold, (tr_idx, val_idx) in enumerate(
+            gkf.split(X_train, y_train, groups), start=1
+        ):
+            print(f"  Fold {fold}/{N_CV_FOLDS}...")
+            Xf_tr = X_train.iloc[tr_idx]
+            Xf_val = X_train.iloc[val_idx]
+            yf_tr = y_train[tr_idx]
+            yf_val = y_train[val_idx]
+
+            Xf_tr_s, Xf_val_s, _ = scale(Xf_tr, Xf_val, scaled_features)
+            Xf_tr_arr = Xf_tr_s.values.astype(np.float32)
+            Xf_val_arr = Xf_val_s.values.astype(np.float32)
+
+            model_fold = build_model(n_features)
+            model_fold.fit(
+                Xf_tr_arr, yf_tr,
+                validation_data=(Xf_val_arr, yf_val),
+                epochs=epochs,
+                batch_size=batch_size,
+                callbacks=make_callbacks(),
+                verbose=0,
+            )
+
+            proba_val = model_fold.predict(Xf_val_arr, verbose=0)
+            y_val_pred = np.argmax(proba_val, axis=1)
+            fold_acc = accuracy_score(yf_val, y_val_pred)
+            fold_gmpca = gmpca_from_proba(proba_val, yf_val)
+            cv_accs.append(fold_acc)
+            cv_gmpcas.append(fold_gmpca)
+            print(f"    acc={fold_acc:.4f}  gmpca={fold_gmpca:.4f}")
+    else:
+        print("\n[AVISO] household_id no encontrado; se omite el CV.")
+
+    acc_cv = float(np.mean(cv_accs)) if cv_accs else None
+    gmpca_cv = float(np.mean(cv_gmpcas)) if cv_gmpcas else None
+
+    if acc_cv is not None:
+        print(f"\nCV medio  -> Accuracy: {acc_cv*100:.2f}%  GMPCA: {gmpca_cv*100:.2f}%")
+
+    # --- Modelo final sobre todo el conjunto de entrenamiento ---
+    print(f"\nEntrenando modelo final (max_epochs={epochs}, batch_size={batch_size})...")
+    X_train_s, X_test_s, scaler = scale(X_train, X_test, scaled_features)
+    X_train_arr = X_train_s.values.astype(np.float32)
+    X_test_arr = X_test_s.values.astype(np.float32)
+
+    model = build_model(n_features)
     model.summary()
-
-    early_stopping = tf.keras.callbacks.EarlyStopping(
-        monitor="val_loss",
-        patience=10,
-        restore_best_weights=True,
-    )
-
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor="val_loss",
-        factor=0.5,
-        patience=5,
-        min_lr=1e-5,
-    )
-
-    print(f"\nEntrenando DNN (max_epochs={epochs}, batch_size={batch_size})...")
     history = model.fit(
-        X_train_arr,
-        y_train,
+        X_train_arr, y_train,
         validation_split=0.1,
         epochs=epochs,
         batch_size=batch_size,
-        callbacks=[early_stopping, reduce_lr],
+        callbacks=make_callbacks(),
         verbose=1,
     )
 
-    proba_train = model.predict(X_train_arr, verbose=0)
     proba_test = model.predict(X_test_arr, verbose=0)
-    y_train_pred = np.argmax(proba_train, axis=1)
     y_test_pred = np.argmax(proba_test, axis=1)
-
-    acc_train = accuracy_score(y_train, y_train_pred)
     acc_test = accuracy_score(y_test, y_test_pred)
-    gmpca_train = gmpca_from_proba(proba_train, y_train)
     gmpca_test = gmpca_from_proba(proba_test, y_test)
 
-    print(f"\nAccuracy train: {acc_train:.4f} ({acc_train*100:.2f}%)")
-    print(f"Accuracy test : {acc_test:.4f} ({acc_test*100:.2f}%)")
-    print(f"GMPCA train   : {gmpca_train:.4f} ({gmpca_train*100:.2f}%)")
-    print(f"GMPCA test    : {gmpca_test:.4f} ({gmpca_test*100:.2f}%)")
-
+    print(f"Test      -> Accuracy: {acc_test*100:.2f}%  GMPCA: {gmpca_test*100:.2f}%")
     print("\nClassification report (test):")
-    print(
-        classification_report(
-            y_test,
-            y_test_pred,
-            target_names=["walk", "cycle", "pt", "drive"],
-        )
-    )
+    print(classification_report(y_test, y_test_pred, target_names=["walk", "cycle", "pt", "drive"]))
 
-    suffix = "_nohh" if drop_household else ""
-    keras_path = MODELS_DIR / f"dnn_lpmc{suffix}.keras"
-    bundle_path = MODELS_DIR / f"dnn_lpmc{suffix}.joblib"
-    scaler_path = MODELS_DIR / f"dnn_lpmc_scaler{suffix}.joblib"
+    keras_path = MODELS_DIR / "dnn_lpmc.keras"
+    bundle_path = MODELS_DIR / "dnn_lpmc.joblib"
+    scaler_path = MODELS_DIR / "dnn_lpmc_scaler.joblib"
 
     model.save(str(keras_path))
-    # El bundle no serializa el modelo Keras directamente: solo guarda la ruta.
-    # lpmc_inference.py crea el KerasModalWrapper al cargar este bundle.
-    joblib.dump(
-        {"keras_path": str(keras_path), "feature_names": feature_names},
-        bundle_path,
-    )
+    joblib.dump({"keras_path": str(keras_path), "feature_names": feature_names}, bundle_path)
     joblib.dump({"scaler": scaler, "scaled_features": scaled_features}, scaler_path)
 
-    metrics_path = ARTIFACTS_DIR / f"dnn_lpmc_metrics{suffix}.json"
+    metrics_path = ARTIFACTS_DIR / "dnn_lpmc_metrics.json"
     metrics_payload = {
-        "train": {"accuracy": acc_train, "gmpca": gmpca_train},
+        "train_cv": {"accuracy": acc_cv, "gmpca": gmpca_cv},
         "test": {"accuracy": acc_test, "gmpca": gmpca_test},
         "architecture": "Input→BN→Dense(128,relu)→Drop(0.3)→Dense(64,relu)→Drop(0.2)→Dense(32,relu)→Dense(4,softmax)",
         "epochs_trained": len(history.history["loss"]),
         "epochs_max": epochs,
         "batch_size": batch_size,
-        "drop_household": drop_household,
+        "cv_folds": N_CV_FOLDS,
     }
     metrics_path.write_text(json.dumps(metrics_payload, indent=2))
 
