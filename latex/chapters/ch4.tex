@@ -15,7 +15,7 @@ La Figura~\ref{fig:arch_general} muestra la arquitectura de alto nivel del siste
 \begin{figure}[htbp]
   \centering
   % \includegraphics[width=0.92\textwidth]{figures/arch_general.pdf}
-  \missingfigure{Diagrama de bloques: React/Leaflet $\rightarrow$ FastAPI $\rightarrow$ \{OSRM$\times$3, OTP, XGBoost\}. Con puertos y etiquetas de cada bloque.}
+  \includegraphics[width=\textwidth]{figs/ARQUITECTURA_final2.pdf}
   \caption{Arquitectura general del simulador de movilidad urbana.}
   \label{fig:arch_general}
 \end{figure}
@@ -29,13 +29,13 @@ El frontend expone la interfaz cartográfica al usuario y delega en el backend e
 
 La infraestructura del sistema se define íntegramente en un fichero \texttt{docker-compose.yml} en la raíz del repositorio. El despliegue completo se obtiene con un único comando (\texttt{docker compose up -{}-build}), lo que elimina dependencias de entorno en la máquina anfitriona y garantiza reproducibilidad.
 
-\begin{figure}[htbp]
-  \centering
-  % \includegraphics[width=0.92\textwidth]{figures/arch_docker.pdf}
-  \missingfigure{Diagrama de servicios Docker Compose: frontend :5173, backend :8000, osrm-car :5000, osrm-bike :5001, osrm-foot :5002, otp :8080. Volúmenes montados en OSRM y OTP.}
-  \caption{Servicios Docker Compose y puertos expuestos.}
-  \label{fig:arch_docker}
-\end{figure}
+% \begin{figure}[htbp]
+%   \centering
+%   % \includegraphics[width=0.92\textwidth]{figures/arch_docker.pdf}
+%   \missingfigure{Diagrama de servicios Docker Compose: frontend :5173, backend :8000, osrm-car :5000, osrm-bike :5001, osrm-foot :5002, otp :8080. Volúmenes montados en OSRM y OTP.}
+%   \caption{Servicios Docker Compose y puertos expuestos.}
+%   \label{fig:arch_docker}
+% \end{figure}
 
 La Tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos y su función en el sistema.
 
@@ -168,7 +168,7 @@ Las variables continuas que presentaban distribución asimétrica en el conjunto
 La variante activa del modelo se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT}. El valor por defecto (\texttt{nohh}) carga el modelo entrenado sin \texttt{household\_id} como variable de entrada, variante apropiada para inferencia en producción ya que ese identificador no está disponible en tiempo de ejecución. La variante \texttt{legacy} mantiene compatibilidad con los artefactos originales del entrenamiento y neutraliza \texttt{household\_id} fijándolo a cero.
 
 % -------------------------------------------------------
-\section{Decisiones técnicas}
+\section{Decisiones técnicas (ch5)}
 \label{sec:arch_decisiones}
 % -------------------------------------------------------
 

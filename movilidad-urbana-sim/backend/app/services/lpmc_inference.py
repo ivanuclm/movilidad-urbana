@@ -30,6 +30,41 @@ FUELTYPE_VALUES = ["Average", "Diesel", "Hybrid", "Petrol"]
 _ARTIFACTS_CACHE: dict[str, Any] | None = None
 
 
+class KerasModalWrapper:
+    """Envuelve un modelo Keras con la interfaz predict_proba de sklearn.
+
+    El bundle joblib solo almacena la ruta al fichero .keras; el modelo
+    se carga en memoria la primera vez que se llama a predict_proba.
+    """
+
+    def __init__(self, keras_path: str) -> None:
+        self._path = str(keras_path)
+        self._model: Any = None
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_model"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._model = None
+
+    def _ensure_loaded(self) -> None:
+        if self._model is None:
+            import tensorflow as tf  # noqa: PLC0415
+            self._model = tf.keras.models.load_model(self._path)
+
+    def predict_proba(self, x: "np.ndarray") -> "np.ndarray":
+        import numpy as np  # noqa: PLC0415
+        self._ensure_loaded()
+        return self._model.predict(np.asarray(x, dtype=np.float32), verbose=0)
+
+    def predict(self, x: "np.ndarray") -> "np.ndarray":
+        import numpy as np  # noqa: PLC0415
+        return np.argmax(self.predict_proba(x), axis=1)
+
+
 def _project_root() -> Path:
     # .../movilidad-urbana-sim/backend/app/services -> .../TFM
     return Path(__file__).resolve().parents[4]
@@ -52,8 +87,26 @@ def _resolve_model_paths() -> tuple[Path, Path]:
         scaler_candidates = [
             models_dir / "xgb_lpmc_scaler.joblib",
         ]
+    elif variant == "rf":
+        model_candidates = [
+            models_dir / "rf_lpmc_nohh.joblib",
+            models_dir / "rf_lpmc.joblib",
+        ]
+        scaler_candidates = [
+            models_dir / "rf_lpmc_scaler_nohh.joblib",
+            models_dir / "rf_lpmc_scaler.joblib",
+        ]
+    elif variant == "dnn":
+        model_candidates = [
+            models_dir / "dnn_lpmc_nohh.joblib",
+            models_dir / "dnn_lpmc.joblib",
+        ]
+        scaler_candidates = [
+            models_dir / "dnn_lpmc_scaler_nohh.joblib",
+            models_dir / "dnn_lpmc_scaler.joblib",
+        ]
     else:
-        # Default: model trained without household_id as input feature.
+        # Default: XGBoost sin household_id.
         model_candidates = [
             models_dir / "xgb_lpmc_tuned_nohh.joblib",
             models_dir / "xgb_lpmc_baseline_nohh.joblib",
@@ -92,8 +145,14 @@ def _load_artifacts() -> dict[str, Any]:
     model_bundle = joblib.load(model_path)
     scaler_bundle = joblib.load(scaler_path)
 
+    # Bundle DNN: contiene keras_path en lugar de model directamente.
+    if "keras_path" in model_bundle:
+        model = KerasModalWrapper(model_bundle["keras_path"])
+    else:
+        model = model_bundle["model"]
+
     _ARTIFACTS_CACHE = {
-        "model": model_bundle["model"],
+        "model": model,
         "feature_names": model_bundle["feature_names"],
         "scaler": scaler_bundle["scaler"],
         "scaled_features": scaler_bundle["scaled_features"],
