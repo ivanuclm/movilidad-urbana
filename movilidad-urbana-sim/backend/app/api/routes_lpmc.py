@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.lpmc_inference import run_lpmc_debug_features, run_lpmc_inference
+from app.services.lpmc_inference import run_lpmc_compare, run_lpmc_debug_features, run_lpmc_inference
 
 router = APIRouter(prefix="/api/lpmc", tags=["lpmc"])
 
@@ -58,6 +58,18 @@ async def predict_lpmc(body: LpmcPredictRequest):
         raise HTTPException(status_code=500, detail=f"Error interno en inferencia LPMC: {exc}")
 
     return LpmcPredictResponse(**result)
+
+
+@router.post("/compare")
+async def compare_lpmc_models(body: LpmcPredictRequest):
+    try:
+        return await run_lpmc_compare(body.model_dump())
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Error interno en comparación LPMC: {exc}")
 
 
 @router.post("/debug-features")

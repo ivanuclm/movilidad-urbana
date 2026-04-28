@@ -152,6 +152,18 @@ type LpmcDebugResponse = {
   model_info: Record<string, string | number>;
 };
 
+type LpmcSingleResult = {
+  predicted_mode: "walk" | "cycle" | "pt" | "drive";
+  confidence: number;
+  probabilities: Record<"walk" | "cycle" | "pt" | "drive", number>;
+} | null;
+
+type LpmcCompareResponse = {
+  results: Record<"xgb" | "rf" | "dnn", LpmcSingleResult>;
+  route_features: Record<string, number>;
+  model_info: { itinerary_index: number; total_itineraries: number };
+};
+
 async function fetchRoutes(
   origin: Point,
   destination: Point
@@ -194,6 +206,21 @@ async function fetchTransitRoute(
 
   const data: TransitRouteResponse = await res.json();
   return data.result;
+}
+
+async function fetchLpmcCompare(
+  origin: Point,
+  destination: Point,
+  user_profile: LpmcUserProfile,
+  itinerary_index?: number
+): Promise<LpmcCompareResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/lpmc/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ origin, destination, user_profile, itinerary_index }),
+  });
+  if (!res.ok) throw new Error(`Error LPMC compare: ${res.status}`);
+  return res.json();
 }
 
 async function fetchLpmcPredict(
@@ -430,6 +457,11 @@ function App() {
   const lpmcDebugMutation = useMutation<LpmcDebugResponse, Error, number | undefined>({
     mutationFn: (idx) =>
       fetchLpmcDebug(origin, destination, lpmcProfile, idx ?? transitItineraryIndex),
+  });
+
+  const lpmcCompareMutation = useMutation<LpmcCompareResponse, Error, number | undefined>({
+    mutationFn: (idx) =>
+      fetchLpmcCompare(origin, destination, lpmcProfile, idx ?? transitItineraryIndex),
   });
 
   const isCalculating = osrmMutation.isPending || transitMutation.isPending;
@@ -1121,6 +1153,12 @@ function App() {
               >
                 {lpmcPredictMutation.isPending ? "Infiriendo..." : "Inferir modo"}
               </button>
+              <button
+                onClick={() => lpmcCompareMutation.mutate(transitItineraryIndex)}
+                disabled={lpmcCompareMutation.isPending}
+              >
+                {lpmcCompareMutation.isPending ? "Comparando..." : "Comparar 3 modelos"}
+              </button>
             </div>
 
             {lpmcPredictMutation.error && (
@@ -1149,6 +1187,52 @@ function App() {
                 </ul>
               </div>
             )}
+
+            {lpmcCompareMutation.error && (
+              <p className="error-text">{lpmcCompareMutation.error.message}</p>
+            )}
+
+            {lpmcCompareMutation.data && (() => {
+              const { results } = lpmcCompareMutation.data;
+              const modes: Array<"walk" | "cycle" | "pt" | "drive"> = ["walk", "cycle", "pt", "drive"];
+              const modeLabels: Record<string, string> = { walk: "A pie", cycle: "Bicicleta", pt: "T. Público", drive: "Coche" };
+              const variants: Array<"xgb" | "rf" | "dnn"> = ["xgb", "rf", "dnn"];
+              const variantLabels: Record<string, string> = { xgb: "XGBoost", rf: "Random Forest", dnn: "DNN" };
+              return (
+                <div style={{ marginTop: "0.6rem", background: "#f9fafb", padding: "0.6rem", borderRadius: "0.4rem" }}>
+                  <div style={{ fontWeight: 600, marginBottom: "0.4rem", fontSize: "0.85rem" }}>Comparación de modelos</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", paddingBottom: "0.3rem", color: "#6b7280" }}>Modo</th>
+                        {variants.map(v => (
+                          <th key={v} style={{ textAlign: "right", paddingBottom: "0.3rem", color: results[v] ? "#1d4ed8" : "#9ca3af" }}>
+                            {variantLabels[v]}
+                            {results[v] && <span style={{ display: "block", fontSize: "0.7rem", fontWeight: 400 }}>→ {modeLabels[results[v]!.predicted_mode]}</span>}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modes.map(mode => (
+                        <tr key={mode} style={{ borderTop: "1px solid #e5e7eb" }}>
+                          <td style={{ paddingTop: "0.25rem", paddingBottom: "0.25rem", color: "#374151" }}>{modeLabels[mode]}</td>
+                          {variants.map(v => {
+                            const prob = results[v]?.probabilities[mode];
+                            const isWinner = results[v]?.predicted_mode === mode;
+                            return (
+                              <td key={v} style={{ textAlign: "right", paddingTop: "0.25rem", fontWeight: isWinner ? 700 : 400, color: isWinner ? "#1d4ed8" : "#374151" }}>
+                                {prob !== undefined ? `${(prob * 100).toFixed(1)}%` : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem" }}>
               <button

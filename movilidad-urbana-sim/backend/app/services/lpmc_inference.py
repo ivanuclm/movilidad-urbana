@@ -27,7 +27,9 @@ MODE_LABELS = {
 PURPOSE_VALUES = ["B", "HBE", "HBO", "HBW", "NHBO"]
 FUELTYPE_VALUES = ["Average", "Diesel", "Hybrid", "Petrol"]
 
-_ARTIFACTS_CACHE: dict[str, Any] | None = None
+_ARTIFACTS_CACHE: dict[str, dict[str, Any]] = {}
+
+ALL_VARIANTS = ["xgb", "rf", "dnn"]
 
 
 class TorchModalWrapper:
@@ -55,6 +57,21 @@ class TorchModalWrapper:
         if self._model is None:
             import torch
             import torch.nn as nn
+
+            pt_path = Path(self._path)
+            if not pt_path.exists():
+                # El bundle puede almacenar una ruta absoluta de Windows que no
+                # existe en el contenedor Linux. Path.name no interpreta '\' en
+                # Linux, así que normalizamos el separador antes de extraer el
+                # nombre del fichero.
+                filename = Path(self._path.replace("\\", "/")).name
+                fallback = _project_root() / "lpmc" / "models" / filename
+                if not fallback.exists():
+                    raise FileNotFoundError(
+                        f"No se encontro el modelo DNN en: {self._path} ni en {fallback}"
+                    )
+                pt_path = fallback
+
             model = nn.Sequential(
                 nn.BatchNorm1d(self._n_features),
                 nn.Linear(self._n_features, 128), nn.ReLU(), nn.Dropout(0.3),
@@ -62,7 +79,7 @@ class TorchModalWrapper:
                 nn.Linear(64, 32),                nn.ReLU(),
                 nn.Linear(32, 4),
             )
-            checkpoint = torch.load(self._path, map_location="cpu", weights_only=True)
+            checkpoint = torch.load(str(pt_path), map_location="cpu", weights_only=True)
             model.load_state_dict(checkpoint["state_dict"])
             model.eval()
             self._model = model
@@ -86,15 +103,16 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _resolve_model_paths() -> tuple[Path, Path]:
-    model_override = os.environ.get("LPMC_MODEL_PATH")
-    scaler_override = os.environ.get("LPMC_SCALER_PATH")
-
-    if model_override and scaler_override:
-        return Path(model_override), Path(scaler_override)
+def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
+    # Env var overrides solo para la variante activa por defecto.
+    default_variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
+    if variant == default_variant:
+        model_override = os.environ.get("LPMC_MODEL_PATH")
+        scaler_override = os.environ.get("LPMC_SCALER_PATH")
+        if model_override and scaler_override:
+            return Path(model_override), Path(scaler_override)
 
     models_dir = _project_root() / "lpmc" / "models"
-    variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
     if variant == "rf":
         model_candidates = [
             models_dir / "rf_lpmc.joblib",
@@ -133,24 +151,26 @@ def _resolve_model_paths() -> tuple[Path, Path]:
     return model_path, scaler_path
 
 
-def _load_artifacts() -> dict[str, Any]:
+def _load_artifacts(variant: str | None = None) -> dict[str, Any]:
     global _ARTIFACTS_CACHE
-    if _ARTIFACTS_CACHE is not None:
-        return _ARTIFACTS_CACHE
+    if variant is None:
+        variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
+
+    if variant in _ARTIFACTS_CACHE:
+        return _ARTIFACTS_CACHE[variant]
 
     import joblib
 
-    model_path, scaler_path = _resolve_model_paths()
+    model_path, scaler_path = _resolve_model_paths(variant)
     model_bundle = joblib.load(model_path)
     scaler_bundle = joblib.load(scaler_path)
 
-    # Bundle DNN (PyTorch): contiene pt_path en lugar de model directamente.
     if "pt_path" in model_bundle:
         model = TorchModalWrapper(model_bundle["pt_path"], model_bundle["n_features"])
     else:
         model = model_bundle["model"]
 
-    _ARTIFACTS_CACHE = {
+    _ARTIFACTS_CACHE[variant] = {
         "model": model,
         "feature_names": model_bundle["feature_names"],
         "scaler": scaler_bundle["scaler"],
@@ -158,7 +178,7 @@ def _load_artifacts() -> dict[str, Any]:
         "model_path": str(model_path),
         "scaler_path": str(scaler_path),
     }
-    return _ARTIFACTS_CACHE
+    return _ARTIFACTS_CACHE[variant]
 
 
 async def _fetch_otp_itinerary(
@@ -266,10 +286,10 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
     }
 
 
-def _build_feature_frame(payload: dict, route_features: dict[str, float | int]):
+def _build_feature_frame(payload: dict, route_features: dict[str, float | int], variant: str | None = None):
     import numpy as np
 
-    artifacts = _load_artifacts()
+    artifacts = _load_artifacts(variant)
     feature_names: list[str] = artifacts["feature_names"]
 
     row = {name: 0.0 for name in feature_names}
@@ -313,10 +333,10 @@ def _build_feature_frame(payload: dict, route_features: dict[str, float | int]):
     return x, feature_names
 
 
-def _predict(x, feature_names: list[str]) -> dict:
+def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
     import numpy as np
 
-    artifacts = _load_artifacts()
+    artifacts = _load_artifacts(variant)
     model = artifacts["model"]
     scaler = artifacts["scaler"]
     scaled_features = [c for c in artifacts["scaled_features"] if c in feature_names]
@@ -422,6 +442,44 @@ async def run_lpmc_inference(body: dict) -> dict:
                 if "household_id" in feature_names
                 else "not_used_in_model_features"
             ),
+            "itinerary_index": otp["itinerary_index"],
+            "total_itineraries": otp["total_itineraries"],
+        },
+    }
+
+
+async def run_lpmc_compare(body: dict) -> dict:
+    """Ejecuta inferencia con los tres modelos (xgb, rf, dnn) sobre el mismo viaje."""
+    origin = body["origin"]
+    destination = body["destination"]
+
+    driving, cycling, foot, otp = await asyncio.gather(
+        get_route("driving", origin["lon"], origin["lat"], destination["lon"], destination["lat"]),
+        get_route("cycling", origin["lon"], origin["lat"], destination["lon"], destination["lat"]),
+        get_route("foot", origin["lon"], origin["lat"], destination["lon"], destination["lat"]),
+        _fetch_otp_itinerary(
+            origin["lat"], origin["lon"],
+            destination["lat"], destination["lon"],
+            body.get("itinerary_index"),
+        ),
+    )
+
+    osrm_results = {"driving": driving, "cycling": cycling, "foot": foot}
+    route_features = _build_route_features(osrm_results, otp)
+    payload = dict(body["user_profile"])
+
+    results: dict[str, Any] = {}
+    for variant in ALL_VARIANTS:
+        try:
+            x, feature_names = _build_feature_frame(payload, route_features, variant)
+            results[variant] = _predict(x, feature_names, variant)
+        except FileNotFoundError:
+            results[variant] = None
+
+    return {
+        "results": results,
+        "route_features": route_features,
+        "model_info": {
             "itinerary_index": otp["itinerary_index"],
             "total_itineraries": otp["total_itineraries"],
         },
