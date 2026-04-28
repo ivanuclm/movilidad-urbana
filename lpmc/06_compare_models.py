@@ -12,7 +12,7 @@ Salida:
     - artifacts/lpmc_comparison_train.tex   (tabla LaTeX, conjunto train)
     - artifacts/lpmc_comparison_test.tex    (tabla LaTeX, conjunto test)
 
-Los ficheros .tex están listos para incluir con \input{} en el capítulo 5.
+Los ficheros .tex están listos para incluir con \\input{} en el capítulo 5.
 """
 
 import json

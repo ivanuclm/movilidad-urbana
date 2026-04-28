@@ -42,7 +42,35 @@ LPMC
 
 \subsection{Entrenamiento y evaluación}
 
+\begin{table}[htbp]
+\caption{Resultados en entrenamiento con validación cruzada de 5-folds agrupada por hogar (dataset LPMC)}
+\label{tab:lpmc_train_results}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Modelo & Accuracy (\%) & GMPCA (\%) \\
+\midrule
+Random Forest & 74.87 & 51.18 \\
+XGBoost & 75.48 & 52.54 \\
+DNN & 74.66 & 52.06 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
+\begin{table}[htbp]
+\caption{Resultados en el conjunto de test (dataset LPMC)}
+\label{tab:lpmc_test_results}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Modelo & Accuracy (\%) & GMPCA (\%) \\
+\midrule
+Random Forest & 74.10 & 50.33 \\
+XGBoost & 74.41 & 51.63 \\
+DNN & 73.84 & 51.06 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 
 % \section{Utilidades operativas}

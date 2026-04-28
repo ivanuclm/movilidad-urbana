@@ -30,15 +30,16 @@ FUELTYPE_VALUES = ["Average", "Diesel", "Hybrid", "Petrol"]
 _ARTIFACTS_CACHE: dict[str, Any] | None = None
 
 
-class KerasModalWrapper:
-    """Envuelve un modelo Keras con la interfaz predict_proba de sklearn.
+class TorchModalWrapper:
+    """Envuelve un modelo PyTorch con la interfaz predict_proba de sklearn.
 
-    El bundle joblib solo almacena la ruta al fichero .keras; el modelo
+    El bundle joblib almacena la ruta al .pt y n_features; el modelo
     se carga en memoria la primera vez que se llama a predict_proba.
     """
 
-    def __init__(self, keras_path: str) -> None:
-        self._path = str(keras_path)
+    def __init__(self, pt_path: str, n_features: int) -> None:
+        self._path = str(pt_path)
+        self._n_features = n_features
         self._model: Any = None
 
     def __getstate__(self) -> dict:
@@ -52,16 +53,31 @@ class KerasModalWrapper:
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
-            import tensorflow as tf  # noqa: PLC0415
-            self._model = tf.keras.models.load_model(self._path)
+            import torch
+            import torch.nn as nn
+            model = nn.Sequential(
+                nn.BatchNorm1d(self._n_features),
+                nn.Linear(self._n_features, 128), nn.ReLU(), nn.Dropout(0.3),
+                nn.Linear(128, 64),               nn.ReLU(), nn.Dropout(0.2),
+                nn.Linear(64, 32),                nn.ReLU(),
+                nn.Linear(32, 4),
+            )
+            checkpoint = torch.load(self._path, map_location="cpu", weights_only=True)
+            model.load_state_dict(checkpoint["state_dict"])
+            model.eval()
+            self._model = model
 
     def predict_proba(self, x: "np.ndarray") -> "np.ndarray":
-        import numpy as np  # noqa: PLC0415
+        import numpy as np
+        import torch
+        import torch.nn.functional as F
         self._ensure_loaded()
-        return self._model.predict(np.asarray(x, dtype=np.float32), verbose=0)
+        with torch.no_grad():
+            logits = self._model(torch.tensor(np.asarray(x, dtype=np.float32)))
+            return F.softmax(logits, dim=1).numpy()
 
     def predict(self, x: "np.ndarray") -> "np.ndarray":
-        import numpy as np  # noqa: PLC0415
+        import numpy as np
         return np.argmax(self.predict_proba(x), axis=1)
 
 
@@ -128,9 +144,9 @@ def _load_artifacts() -> dict[str, Any]:
     model_bundle = joblib.load(model_path)
     scaler_bundle = joblib.load(scaler_path)
 
-    # Bundle DNN: contiene keras_path en lugar de model directamente.
-    if "keras_path" in model_bundle:
-        model = KerasModalWrapper(model_bundle["keras_path"])
+    # Bundle DNN (PyTorch): contiene pt_path en lugar de model directamente.
+    if "pt_path" in model_bundle:
+        model = TorchModalWrapper(model_bundle["pt_path"], model_bundle["n_features"])
     else:
         model = model_bundle["model"]
 

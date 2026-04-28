@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 #
-# El modelo PyTorch se guarda en models/dnn_lpmc.pt (state_dict + arquitectura).
-# El bundle joblib contiene la ruta al .pt y los feature_names;
-# el backend crea el wrapper en tiempo de carga (TorchModalWrapper en lpmc_inference.py).
+# El modelo Keras se guarda en models/dnn_lpmc.keras.
+# El bundle joblib solo contiene la ruta al .keras y los feature_names;
+# el backend crea el wrapper en tiempo de carga (KerasModalWrapper en lpmc_inference.py).
 
 import json
 import os
@@ -22,7 +22,6 @@ MODELS_DIR = BASE_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_CV_FOLDS = 5
-RANDOM_STATE = 481516
 
 SCALED_FEATURES = [
     "day_of_week",
@@ -61,85 +60,33 @@ def scale(X_tr: pd.DataFrame, X_val: pd.DataFrame, cols: list[str]):
 
 
 def build_model(n_features: int):
-    import torch.nn as nn
-    return nn.Sequential(
-        nn.BatchNorm1d(n_features),
-        nn.Linear(n_features, 128), nn.ReLU(), nn.Dropout(0.3),
-        nn.Linear(128, 64),        nn.ReLU(), nn.Dropout(0.2),
-        nn.Linear(64, 32),         nn.ReLU(),
-        nn.Linear(32, 4),
+    import tensorflow as tf
+
+    inputs = tf.keras.Input(shape=(n_features,))
+    x = tf.keras.layers.BatchNormalization()(inputs)
+    x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    x = tf.keras.layers.Dense(64, activation="relu")(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.Dense(32, activation="relu")(x)
+    outputs = tf.keras.layers.Dense(4, activation="softmax")(x)
+
+    model = tf.keras.Model(inputs, outputs)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
     )
+    return model
 
 
-def predict_proba_torch(model, X_arr: np.ndarray) -> np.ndarray:
-    import torch
-    import torch.nn.functional as F
-    model.eval()
-    with torch.no_grad():
-        logits = model(torch.tensor(X_arr, dtype=torch.float32))
-        return F.softmax(logits, dim=1).numpy()
-
-
-def train_model(model, X_tr: np.ndarray, y_tr: np.ndarray,
-                X_val: np.ndarray, y_val: np.ndarray,
-                epochs: int, batch_size: int) -> int:
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, TensorDataset
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.5, patience=5, min_lr=1e-5
-    )
-    criterion = nn.CrossEntropyLoss()
-
-    X_tr_t = torch.tensor(X_tr, dtype=torch.float32)
-    y_tr_t = torch.tensor(y_tr, dtype=torch.long)
-    X_val_t = torch.tensor(X_val, dtype=torch.float32)
-    y_val_t = torch.tensor(y_val, dtype=torch.long)
-
-    loader = DataLoader(TensorDataset(X_tr_t, y_tr_t), batch_size=batch_size, shuffle=True)
-
-    best_val_loss = float("inf")
-    patience_counter = 0
-    patience = 10
-    best_state = None
-    epochs_run = 0
-
-    for epoch in range(1, epochs + 1):
-        model.train()
-        for Xb, yb in loader:
-            optimizer.zero_grad()
-            criterion(model(Xb), yb).backward()
-            optimizer.step()
-
-        model.eval()
-        with torch.no_grad():
-            val_loss = criterion(model(X_val_t), y_val_t).item()
-
-        scheduler.step(val_loss)
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_state = {k: v.clone() for k, v in model.state_dict().items()}
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        epochs_run = epoch
-        if patience_counter >= patience:
-            break
-
-    if best_state is not None:
-        model.load_state_dict(best_state)
-
-    return epochs_run
+RANDOM_STATE = 481516
 
 
 def main() -> None:
-    import torch
+    import tensorflow as tf
 
-    torch.manual_seed(RANDOM_STATE)
+    tf.random.set_seed(RANDOM_STATE)
     np.random.seed(RANDOM_STATE)
 
     train_path = DATA_DIR / "LPMC_train.csv"
@@ -175,6 +122,16 @@ def main() -> None:
     epochs = int(os.environ.get("DNN_EPOCHS", "100"))
     batch_size = int(os.environ.get("DNN_BATCH_SIZE", "512"))
 
+    def make_callbacks():
+        return [
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_loss", patience=10, restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5
+            ),
+        ]
+
     # --- 5-fold GroupKFold CV (métricas de entrenamiento) ---
     cv_accs: list[float] = []
     cv_gmpcas: list[float] = []
@@ -185,29 +142,33 @@ def main() -> None:
         for fold, (tr_idx, val_idx) in enumerate(
             gkf.split(X_train, y_train, groups), start=1
         ):
-            print(f"  Fold {fold}/{N_CV_FOLDS}...", end=" ", flush=True)
+            print(f"  Fold {fold}/{N_CV_FOLDS}...")
             Xf_tr = X_train.iloc[tr_idx]
             Xf_val = X_train.iloc[val_idx]
             yf_tr = y_train[tr_idx]
             yf_val = y_train[val_idx]
 
             Xf_tr_s, Xf_val_s, _ = scale(Xf_tr, Xf_val, scaled_features)
+            Xf_tr_arr = Xf_tr_s.values.astype(np.float32)
+            Xf_val_arr = Xf_val_s.values.astype(np.float32)
 
             model_fold = build_model(n_features)
-            train_model(
-                model_fold,
-                Xf_tr_s.values.astype(np.float32), yf_tr,
-                Xf_val_s.values.astype(np.float32), yf_val,
-                epochs, batch_size,
+            model_fold.fit(
+                Xf_tr_arr, yf_tr,
+                validation_data=(Xf_val_arr, yf_val),
+                epochs=epochs,
+                batch_size=batch_size,
+                callbacks=make_callbacks(),
+                verbose=0,
             )
 
-            proba_val = predict_proba_torch(model_fold, Xf_val_s.values.astype(np.float32))
+            proba_val = model_fold.predict(Xf_val_arr, verbose=0)
             y_val_pred = np.argmax(proba_val, axis=1)
             fold_acc = accuracy_score(yf_val, y_val_pred)
             fold_gmpca = gmpca_from_proba(proba_val, yf_val)
             cv_accs.append(fold_acc)
             cv_gmpcas.append(fold_gmpca)
-            print(f"acc={fold_acc:.4f}  gmpca={fold_gmpca:.4f}")
+            print(f"    acc={fold_acc:.4f}  gmpca={fold_gmpca:.4f}")
     else:
         print("\n[AVISO] household_id no encontrado; se omite el CV.")
 
@@ -223,18 +184,18 @@ def main() -> None:
     X_train_arr = X_train_s.values.astype(np.float32)
     X_test_arr = X_test_s.values.astype(np.float32)
 
-    # Reserva 10% del train como validación para early stopping del modelo final
-    n_val = max(1, int(len(X_train_arr) * 0.1))
-    X_final_tr, X_final_val = X_train_arr[:-n_val], X_train_arr[-n_val:]
-    y_final_tr, y_final_val = y_train[:-n_val], y_train[-n_val:]
-
     model = build_model(n_features)
-    epochs_run = train_model(
-        model, X_final_tr, y_final_tr, X_final_val, y_final_val, epochs, batch_size
+    model.summary()
+    history = model.fit(
+        X_train_arr, y_train,
+        validation_split=0.1,
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=make_callbacks(),
+        verbose=1,
     )
-    print(f"Épocas entrenadas: {epochs_run}")
 
-    proba_test = predict_proba_torch(model, X_test_arr)
+    proba_test = model.predict(X_test_arr, verbose=0)
     y_test_pred = np.argmax(proba_test, axis=1)
     acc_test = accuracy_score(y_test, y_test_pred)
     gmpca_test = gmpca_from_proba(proba_test, y_test)
@@ -243,31 +204,30 @@ def main() -> None:
     print("\nClassification report (test):")
     print(classification_report(y_test, y_test_pred, target_names=["walk", "cycle", "pt", "drive"]))
 
-    import torch
-    pt_path = MODELS_DIR / "dnn_lpmc.pt"
+    keras_path = MODELS_DIR / "dnn_lpmc.keras"
     bundle_path = MODELS_DIR / "dnn_lpmc.joblib"
     scaler_path = MODELS_DIR / "dnn_lpmc_scaler.joblib"
 
-    torch.save({"state_dict": model.state_dict(), "n_features": n_features}, str(pt_path))
-    joblib.dump({"pt_path": str(pt_path), "n_features": n_features, "feature_names": feature_names}, bundle_path)
+    model.save(str(keras_path))
+    joblib.dump({"keras_path": str(keras_path), "feature_names": feature_names}, bundle_path)
     joblib.dump({"scaler": scaler, "scaled_features": scaled_features}, scaler_path)
 
     metrics_path = ARTIFACTS_DIR / "dnn_lpmc_metrics.json"
     metrics_payload = {
         "train_cv": {"accuracy": acc_cv, "gmpca": gmpca_cv},
         "test": {"accuracy": acc_test, "gmpca": gmpca_test},
-        "architecture": "Input→BN→Linear(128,relu)→Drop(0.3)→Linear(64,relu)→Drop(0.2)→Linear(32,relu)→Linear(4)",
-        "epochs_trained": epochs_run,
+        "architecture": "Input→BN→Dense(128,relu)→Drop(0.3)→Dense(64,relu)→Drop(0.2)→Dense(32,relu)→Dense(4,softmax)",
+        "epochs_trained": len(history.history["loss"]),
         "epochs_max": epochs,
         "batch_size": batch_size,
         "cv_folds": N_CV_FOLDS,
     }
     metrics_path.write_text(json.dumps(metrics_payload, indent=2))
 
-    print(f"\nModelo PyTorch guardado en : {pt_path}")
-    print(f"Bundle joblib guardado en  : {bundle_path}")
-    print(f"Scaler guardado en         : {scaler_path}")
-    print(f"Métricas guardadas en      : {metrics_path}")
+    print(f"\nModelo Keras guardado en : {keras_path}")
+    print(f"Bundle joblib guardado en: {bundle_path}")
+    print(f"Scaler guardado en       : {scaler_path}")
+    print(f"Métricas guardadas en    : {metrics_path}")
 
 
 if __name__ == "__main__":

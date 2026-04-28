@@ -6,4 +6,4 @@ joblib
 numpy
 scikit-learn
 xgboost
-tensorflow
+torch
