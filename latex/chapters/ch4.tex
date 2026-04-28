@@ -95,7 +95,7 @@ El router \texttt{/api/otp} consulta el planificador multimodal y gestiona la pa
 
 El router \texttt{/api/gtfs} expone información estática de la red de transporte: listado de paradas con sus líneas asociadas, listado de rutas, detalle de ruta con paradas ordenadas y trazado geométrico, y resumen de horarios por fecha. Estos datos se leen directamente del feed GTFS descomprimido en el backend, sin depender de OpenTripPlanner, lo que permite consultar la red aunque el grafo OTP no esté disponible.
 
-El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino junto con el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado parcial, ejecuta la inferencia con el modelo XGBoost y devuelve las probabilidades por modo. El endpoint \texttt{/debug-features} expone el vector de características antes y después del escalado, facilitando la validación del pipeline de inferencia.
+El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino junto con el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado parcial, ejecuta la inferencia con el modelo seleccionado y devuelve las probabilidades por modo. El endpoint \texttt{/debug-features} expone el vector de características antes y después del escalado, facilitando la validación del pipeline de inferencia.
 
 % -------------------------------------------------------
 \section{Frontend: interfaz cartográfica}
