@@ -73,10 +73,9 @@ class TorchModalWrapper:
                 pt_path = fallback
 
             model = nn.Sequential(
-                nn.BatchNorm1d(self._n_features),
-                nn.Linear(self._n_features, 128), nn.ReLU(), nn.Dropout(0.3),
-                nn.Linear(128, 64),               nn.ReLU(), nn.Dropout(0.2),
-                nn.Linear(64, 32),                nn.ReLU(),
+                nn.Linear(self._n_features, 128), nn.BatchNorm1d(128), nn.ReLU(), nn.Dropout(0.3),
+                nn.Linear(128, 64),               nn.BatchNorm1d(64),  nn.ReLU(), nn.Dropout(0.2),
+                nn.Linear(64, 32),                nn.BatchNorm1d(32),  nn.ReLU(),
                 nn.Linear(32, 4),
             )
             checkpoint = torch.load(str(pt_path), map_location="cpu", weights_only=True)
@@ -272,16 +271,18 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
     sum_legs = float(sum(float(leg.get("duration") or 0.0) for leg in legs))
     inter_waiting = max(otp_total - sum_legs, 0.0)
 
+    # El dataset LPMC almacena duraciones en horas; OSRM/OTP devuelven segundos.
+    s2h = 1.0 / 3600.0
     return {
         "distance": float(driving["distance_m"]),
-        "dur_walking": float(foot["duration_s"]),
-        "dur_cycling": float(cycling["duration_s"]),
-        "dur_driving": float(driving["duration_s"]),
-        "dur_pt_access": first_walk,
-        "dur_pt_rail": rail_duration,
-        "dur_pt_bus": bus_duration,
-        "dur_pt_int_waiting": inter_waiting,
-        "dur_pt_int_walking": inter_walk,
+        "dur_walking": float(foot["duration_s"]) * s2h,
+        "dur_cycling": float(cycling["duration_s"]) * s2h,
+        "dur_driving": float(driving["duration_s"]) * s2h,
+        "dur_pt_access": first_walk * s2h,
+        "dur_pt_rail": rail_duration * s2h,
+        "dur_pt_bus": bus_duration * s2h,
+        "dur_pt_int_waiting": inter_waiting * s2h,
+        "dur_pt_int_walking": inter_walk * s2h,
         "pt_n_interchanges": max(transit_legs_count - 1, 0),
     }
 

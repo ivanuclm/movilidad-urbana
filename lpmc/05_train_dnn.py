@@ -62,11 +62,12 @@ def scale(X_tr: pd.DataFrame, X_val: pd.DataFrame, cols: list[str]):
 
 def build_model(n_features: int):
     import torch.nn as nn
+    # BN después de cada Linear (antes de ReLU): normaliza activaciones intermedias
+    # y evita que gamma aprenda magnitudes arbitrariamente grandes.
     return nn.Sequential(
-        nn.BatchNorm1d(n_features),
-        nn.Linear(n_features, 128), nn.ReLU(), nn.Dropout(0.3),
-        nn.Linear(128, 64),        nn.ReLU(), nn.Dropout(0.2),
-        nn.Linear(64, 32),         nn.ReLU(),
+        nn.Linear(n_features, 128), nn.BatchNorm1d(128), nn.ReLU(), nn.Dropout(0.3),
+        nn.Linear(128, 64),         nn.BatchNorm1d(64),  nn.ReLU(), nn.Dropout(0.2),
+        nn.Linear(64, 32),          nn.BatchNorm1d(32),  nn.ReLU(),
         nn.Linear(32, 4),
     )
 
@@ -87,11 +88,13 @@ def train_model(model, X_tr: np.ndarray, y_tr: np.ndarray,
     import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.5, patience=5, min_lr=1e-5
     )
-    criterion = nn.CrossEntropyLoss()
+    # label_smoothing evita que el modelo maximice logits indefinidamente:
+    # el óptimo teórico es logit finito, no infinito.
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     X_tr_t = torch.tensor(X_tr, dtype=torch.float32)
     y_tr_t = torch.tensor(y_tr, dtype=torch.long)
@@ -111,6 +114,7 @@ def train_model(model, X_tr: np.ndarray, y_tr: np.ndarray,
         for Xb, yb in loader:
             optimizer.zero_grad()
             criterion(model(Xb), yb).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
         model.eval()
