@@ -23,7 +23,8 @@ REPOSITORIO: https://github.com/ivanuclm/tfm
 - Frontend: React + Vite + TypeScript + Leaflet, en movilidad-urbana-sim/frontend/
 - Routing viario: OSRM local con tres perfiles (driving:5000, cycling:5001, foot:5002)
 - Transporte público: OpenTripPlanner 2.x + GTFS urbano de Toledo (puerto 8080)
-- Modelo de elección modal: XGBoost multiclase, dataset LPMC, variante nohh (sin household_id)
+- Modelos de elección modal: XGBoost, Random Forest y DNN (PyTorch), dataset LPMC.
+  household_id solo para GroupKFold, nunca como feature. Variante activa: xgb.
 - Orquestación: Docker Compose desde la raíz del repo
 - Memoria: LaTeX compilada con XeLaTeX, capítulos en latex/chapters/
 
@@ -41,8 +42,10 @@ El modelo recibe variables derivadas de OSRM/OTP más variables sociodemográfic
 
 - OSRM local: el demoserver oficial solo tiene perfil coche, lo que imposibilitaba la comparación modal
 - OTP usa fecha y hora fijas (2025-12-01, 12:00) como parche temporal contra inconsistencias por festivos
-- Modelo LPMC con variante nohh activa; variante legacy (con household_id) conservada como respaldo
-- Conmutación de variante mediante variable de entorno LPMC_MODEL_VARIANT
+- Tres modelos LPMC: xgb, rf, dnn. LPMC_MODEL_VARIANT=xgb por defecto.
+  /api/lpmc/predict usa modelo activo; /api/lpmc/compare ejecuta los 3 simultáneamente.
+- Duraciones OSRM/OTP se convierten de segundos a horas antes de pasarlas al modelo
+  (LPMC usa horas; bug detectado y corregido en build_route_features).
 - Colores de línea GTFS deterministas por route_id para consistencia visual
 - Segmentos OTP solo visibles cuando el modo activo es transporte público
 
@@ -57,6 +60,8 @@ El modelo recibe variables derivadas de OSRM/OTP más variables sociodemográfic
 7. Ene 18 - Feb 21: XGBoost baseline. Accuracy ~0.83 train, ~0.73 test. Bici con bajo recall.
 8. Ene 27 - Mar 24: Escritura de memoria (paralelo a otros sprints).
 9. Feb 22 - Mar 8: Integración inferencia LPMC. /api/lpmc/predict, variante nohh, debug-features.
+10. Abr 28-29: RF y DNN (PyTorch). GroupKFold con household_id. Semilla 481516.
+    /api/lpmc/compare. Bug unidades s→h en pipeline detectado y corregido.
 
 # Fuentes de datos
 

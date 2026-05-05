@@ -8,7 +8,8 @@ Memoria en LaTeX.
 
 Estado actual de la memoria: ch1 tiene objetivos pero contexto/motivación y
 alcance vacíos. ch2 prácticamente completo, solo falta subsección del dataset
-LPMC. ch3 Scrum completo con 9 sprints. ch4, ch5 y ch6 vacíos.
+LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (con diagrama TikZ del
+pipeline). ch5 y ch6 vacíos.
 Estado detallado: ESTADO_MEMORIA.md
 
 ---
@@ -59,8 +60,9 @@ REPOSITORIO: https://github.com/ivanuclm/tfm
   (driving:5000, cycling:5001, foot:5002)
 - Transporte público: OpenTripPlanner 2.x + GTFS urbano de Toledo
   (puerto 8080)
-- Modelo de elección modal: XGBoost multiclase, dataset LPMC,
-  variante nohh (sin household_id)
+- Modelos de elección modal: XGBoost, Random Forest y DNN (PyTorch),
+  dataset LPMC, sin household_id en features (GroupKFold con hh_id como grupo)
+- Inferencia: /api/lpmc/predict (modelo activo), /api/lpmc/compare (3 modelos)
 - Orquestación: Docker Compose desde la raíz del repo
 - Memoria: LaTeX compilada con XeLaTeX, capítulos en latex/chapters/
 
@@ -87,9 +89,10 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
   lo que imposibilitaba la comparación modal
 - OTP usa fecha y hora fijas (2025-12-01, 12:00) como parche temporal
   contra inconsistencias por festivos
-- Modelo LPMC con variante nohh activa; variante legacy (con household_id)
-  conservada como respaldo
-- Conmutación de variante mediante variable de entorno LPMC_MODEL_VARIANT
+- Tres modelos LPMC entrenados: xgb, rf, dnn. LPMC_MODEL_VARIANT=xgb por defecto
+  en docker-compose. household_id solo para GroupKFold, nunca como feature.
+- Las duraciones de OSRM/OTP se convierten de segundos a horas en el pipeline
+  de inferencia para coincidir con las unidades del dataset LPMC.
 - Colores de línea GTFS deterministas por route_id para consistencia visual
 - Segmentos OTP solo visibles cuando el modo activo es transporte público
 - Overwrite de variables PT (dur_pt_total, dur_pt_access, dur_pt_bus,
@@ -113,6 +116,9 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
 8. Ene 27 - Mar 24: Escritura de memoria (paralelo a otros sprints).
 9. Feb 22 - Mar 8: Integración inferencia LPMC.
    /api/lpmc/predict, variante nohh, debug-features.
+10. Abr 28 - Abr 29: RF y DNN (PyTorch). GroupKFold con household_id.
+    Semilla 481516. /api/lpmc/compare con panel frontend 3 modelos.
+    Bug unidades (s→h) detectado y corregido en pipeline de inferencia.
 
 ---
 

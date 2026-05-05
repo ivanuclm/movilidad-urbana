@@ -137,15 +137,27 @@ npm run dev
 
 ## LPMC
 
-Pipeline base:
+Pipeline completo (solo necesario al reentrenar):
 
 ```powershell
 cd f:/TFM/lpmc
-python 01_explore.py
-python 02_preprocess.py
-python 03_train_xgb_baseline.py
-python 04_inspect_and_infer.py
+python 01_explore.py           # exploración del dataset
+python 02_preprocess.py        # genera data/preprocessed/LPMC_train.csv y LPMC_test.csv
+python 03_train_xgb.py         # entrena XGBoost -> models/xgb_lpmc.joblib
+python 04_train_rf.py          # entrena Random Forest -> models/rf_lpmc.joblib
+python 05_train_dnn.py         # entrena DNN PyTorch -> models/dnn_lpmc.pt + .joblib
+python 06_compare_models.py    # tabla comparativa Accuracy/GMPCA + LaTeX
 ```
+
+Tras reentrenar cualquier modelo, reiniciar el backend para limpiar caché:
+
+```powershell
+docker compose restart backend
+```
+
+Nota: los 3 modelos usan GroupKFold(n_splits=5) con household_id como grupo
+y StandardScaler ajustado solo sobre el fold de train. Las duraciones de OSRM/OTP
+se convierten de segundos a horas en build_route_features (LPMC usa horas).
 
 ## Parada y logs
 

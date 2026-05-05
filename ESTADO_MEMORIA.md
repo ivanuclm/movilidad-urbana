@@ -1,4 +1,4 @@
-# Estado de la memoria LaTeX — actualizado 15 abril 2026 (rev2)
+# Estado de la memoria LaTeX — actualizado 29 abril 2026 (rev3)
 
 ## ch1 — Introducción
 - Objetivo general: OK
@@ -36,12 +36,13 @@
 - Intro + principio de diseño central (frontend nunca habla con servicios externos): OK
 - Visión general con figura placeholder arch_general: OK
 - Infraestructura y orquestación: tabla servicios Docker + figura placeholder: OK
-- Backend: tabla de endpoints + descripción de los 4 routers: OK
+- Backend: tabla de endpoints (incl. /api/lpmc/compare) + descripción 4 routers: OK
 - Frontend: estructura App + MapView, TanStack Query, basemaps: OK
-- Pipeline de inferencia modal: figura placeholder + tabla variables LPMC (20 vars): OK
-- Decisiones técnicas (6 trade-offs documentados, incl. lazy loading artefactos): OK
-- Referencias "Figura/Tabla" unificadas en mayúscula: OK
-- Pendiente: generar figuras arch_general, arch_docker, pipeline_inferencia
+- Pipeline de inferencia modal: diagrama TikZ completo + tabla variables LPMC: OK
+  - Unidades duración corregidas a horas (h) en la tabla
+  - Diagrama muestra asyncio.gather, build_route_features (s→h), scaler, 3 modelos
+- Decisiones técnicas (lazy loading actualizado para 3 modelos): OK
+- Pendiente: generar figuras arch_general, arch_docker (pipeline_inferencia: HECHO)
 
 ## ch5 — Implementación y resultados
 - TODO VACÍO (solo headers y texto suelto "LPMC")
@@ -68,12 +69,12 @@
 - ch2_pipeline2.png: disponible, comentada (anotada para ch1)
 
 ## Próximo trabajo previsto
-1. ch5 implementación completo
+1. ch5 implementación completo (LPMC: RF, DNN, bug s→h, comparativa 3 modelos)
 2. Subsección dataset LPMC en ch2
 3. Decidir e integrar validación (ch6_OLD)
 4. ch1 contexto/motivación y alcance
 5. ch6 conclusiones
-6. Generar figuras: arch_general, arch_docker, pipeline_inferencia
+6. Generar figuras: arch_general, arch_docker (pipeline_inferencia: HECHO)
 
 ## Límites formales
 - Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)
