@@ -45,9 +45,20 @@
 - Pendiente: generar figuras arch_general, arch_docker (pipeline_inferencia: HECHO)
 
 ## ch5 — Implementación y resultados
-- TODO VACÍO (solo headers y texto suelto "LPMC")
-- Pendiente: OSRM local, OTP Toledo, backend, frontend,
-  GTFS, pipeline LPMC, entrenamiento y evaluación del modelo
+- COMPLETO (primera versión, 6 mayo 2026)
+- Secciones escritas:
+  - OSRM: datos Geofabrik CLM (~98 MB), evolución demoserver→FOSSGIS→local, pipeline extract/partition/customize, 3 contenedores
+  - OTP: selección GTFS (Madrid → Valencia → Toledo/UNAUTO), vigencia feed y decisión fecha fija 2025-12-01 12:00, construcción grafo
+  - GTFS estático: endpoints, coloración determinista de líneas
+  - Backend FastAPI: estructura modular 4 routers, OSRM multiperfil asíncrono, OTP itinerarios
+  - Frontend: React/Vite/TS, Leaflet, 3 presets (Commuter/Estudiante/Familiar), 4 basemaps, TanStack Query
+  - Dataset LPMC: 81.086 registros, 17.616 hogares, tabla de estadísticas
+  - Preprocesado: partición temporal por survey_year, one-hot purpose/fueltype, scaled features (tabla 16 variables)
+  - Entrenamiento: GroupKFold(5) por household_id, tabla hiperparámetros XGBoost, config RF, tabla arquitectura DNN
+  - Pipeline inferencia: asyncio.gather, bug s→h y resolución, lazy loading, compare 3 modelos
+  - Resultados: tablas CV y test los 3 modelos, interpretación perfiles, limitación dominio Londres→Toledo
+- Citas nuevas añadidas al bib: GeofabrikDownloads, NAPEMTMadrid, Grinsztajn2022TreesVsNNs
+- Pendiente de pasada del usuario: revisar y pulir prosa, añadir figuras de pantalla si se desea
 
 ## ch6 — Conclusiones y trabajo futuro
 - TODO VACÍO
@@ -69,12 +80,12 @@
 - ch2_pipeline2.png: disponible, comentada (anotada para ch1)
 
 ## Próximo trabajo previsto
-1. ch5 implementación completo (LPMC: RF, DNN, bug s→h, comparativa 3 modelos)
-2. Subsección dataset LPMC en ch2
-3. Decidir e integrar validación (ch6_OLD)
-4. ch1 contexto/motivación y alcance
-5. ch6 conclusiones
-6. Generar figuras: arch_general, arch_docker (pipeline_inferencia: HECHO)
+1. Subsección dataset LPMC en ch2 (puede solapar con lo ya escrito en ch5)
+2. ch1 contexto/motivación y alcance
+3. ch6 conclusiones y trabajo futuro
+4. Decidir e integrar validación (ch6_validacion_resultados_OLD.tex)
+5. Generar figuras: arch_general, arch_docker (pipeline_inferencia: HECHO)
+6. Pasada de revisión ch5 por el usuario
 
 ## Límites formales
 - Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)

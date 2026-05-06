@@ -8,8 +8,8 @@ Memoria en LaTeX.
 
 Estado actual de la memoria: ch1 tiene objetivos pero contexto/motivación y
 alcance vacíos. ch2 prácticamente completo, solo falta subsección del dataset
-LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (con diagrama TikZ del
-pipeline). ch5 y ch6 vacíos.
+LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (diagrama pipeline PDF).
+ch5 completo (primera versión completa, 6 mayo 2026). ch6 vacío.
 Estado detallado: ESTADO_MEMORIA.md
 
 ---

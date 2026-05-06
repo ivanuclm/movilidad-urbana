@@ -169,3 +169,24 @@ Las variables continuas que presentaban distribución asimétrica en el conjunto
 El modelo activo para \texttt{/predict} se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto). Ninguno de los tres modelos incluye \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; solo se usó durante el entrenamiento como criterio de agrupación en la validación cruzada.
 
 % Decisiones técnicas movidas al capítulo 5 (implementación)
+
+% % -------------------------------------------------------
+% \section{Decisiones técnicas (ch5)}
+% \label{sec:arch_decisiones}
+% % -------------------------------------------------------
+
+% A lo largo del desarrollo se tomaron varias decisiones de diseño que condicionan la arquitectura actual.
+
+% \textbf{OSRM local frente al servidor de demostración.} La solución inicial utilizaba el demoserver público de OSRM, que solo proporciona el perfil de conducción. La imposibilidad de obtener tiempos de bicicleta y desplazamiento a pie, variables imprescindibles para el modelo LPMC, obligó a desplegar OSRM localmente con tres perfiles independientes. El coste es un mayor requisito de almacenamiento y memoria en tiempo de ejecución, compensado por la autonomía completa sobre los datos y la ausencia de límites de cuota.
+
+% \textbf{Tres instancias OSRM en lugar de una.} La imagen oficial de OSRM no admite múltiples perfiles en un único proceso: cada instancia solo puede servir el grafo con el que fue preprocesada mediante \texttt{osrm-extract} y \texttt{osrm-partition}. La solución adoptada es desplegar tres contenedores independientes, cada uno con su grafo, mapeados a puertos distintos del host.
+
+% \textbf{Fecha y hora fijas en OTP.} OpenTripPlanner calcula itinerarios en función de los calendarios de servicio del feed GTFS. Usar la fecha y hora reales introducía inconsistencias: en fines de semana o festivos el servicio es reducido o inexistente, lo que hacía que OTP devolviera itinerarios atípicos o ninguno. La solución adoptada es usar una fecha laborable fija (\texttt{2025-12-01}) y una hora de alta frecuencia de servicio (\texttt{12:00}), garantizando resultados representativos del servicio habitual.
+
+% \textbf{Variante nohh del modelo LPMC.} El modelo original incluía \texttt{household\_id} como variable de entrada, lo que imposibilita su uso en inferencia ya que el simulador no tiene acceso a ese identificador. Se entrenó una variante alternativa excluyendo esa variable (\texttt{nohh}), que es la activa por defecto. La variante original se conserva como respaldo y el sistema puede alternar entre ambas mediante variable de entorno.
+
+% \textbf{Colores de línea GTFS deterministas.} El feed GTFS de Toledo no incluye de forma consistente los campos \texttt{route\_color} y \texttt{route\_text\_color}. Para garantizar consistencia visual entre sesiones, el color de cada línea se deriva de forma determinista a partir del \texttt{route\_id} mediante una función de hash, de modo que la misma línea siempre se muestra con el mismo color independientemente del estado del servidor.
+
+% \textbf{Carga perezosa de artefactos del modelo.} Los modelos (XGBoost, Random Forest, DNN) y sus escaladores se cargan desde disco la primera vez que se solicita cada variante y se mantienen en caché indexada por variante a nivel de módulo durante toda la vida del proceso. Esta estrategia de carga perezosa (\textit{lazy loading}) evita aumentar el tiempo de arranque del contenedor y garantiza que cada artefacto se carga exactamente una vez, independientemente del número de peticiones concurrentes.
+
+% \textbf{Penalización de variables PT sin itinerario real.} Cuando OTP no encuentra un itinerario con transporte público, las variables de ruta PT (\texttt{dur\_pt\_access}, \texttt{dur\_pt\_bus}, \texttt{dur\_pt\_rail}, \texttt{pt\_n\_interchanges}) toman valor cero, lo que puede inducir al modelo a predecir \textit{pt} como modo mayoritario en trayectos sin servicio real. La solución, pendiente de implementar en el momento de escritura, consiste en asignar un valor de penalización alto a estas variables cuando OTP no devuelva un itinerario con al menos un tramo de transporte público.
