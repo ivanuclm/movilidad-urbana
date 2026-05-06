@@ -82,7 +82,8 @@ El backend está implementado con FastAPI sobre Python y se organiza en cuatro r
     GET  & \texttt{/api/gtfs/routes}                  & Listado de líneas de la red. \\
     GET  & \texttt{/api/gtfs/routes/\{id\}}           & Detalle de ruta: paradas y trazado. \\
     GET  & \texttt{/api/gtfs/routes/\{id\}/schedule}  & Horarios de una línea por fecha. \\
-    POST & \texttt{/api/lpmc/predict}                 & Inferencia de elección modal. \\
+    POST & \texttt{/api/lpmc/predict}                 & Inferencia de elección modal con el modelo activo. \\
+    POST & \texttt{/api/lpmc/compare}                 & Inferencia simultánea con XGBoost, RF y DNN. \\
     POST & \texttt{/api/lpmc/debug-features}          & Vector de características antes/después del escalado. \\
     GET  & \texttt{/health}                           & Comprobación de disponibilidad. \\
     \hline
@@ -95,7 +96,7 @@ El router \texttt{/api/otp} consulta el planificador multimodal y gestiona la pa
 
 El router \texttt{/api/gtfs} expone información estática de la red de transporte: listado de paradas con sus líneas asociadas, listado de rutas, detalle de ruta con paradas ordenadas y trazado geométrico, y resumen de horarios por fecha. Estos datos se leen directamente del feed GTFS descomprimido en el backend, sin depender de OpenTripPlanner, lo que permite consultar la red aunque el grafo OTP no esté disponible.
 
-El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino junto con el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, aplica el escalado parcial, ejecuta la inferencia con el modelo seleccionado y devuelve las probabilidades por modo. El endpoint \texttt{/debug-features} expone el vector de características antes y después del escalado, facilitando la validación del pipeline de inferencia.
+El router \texttt{/api/lpmc} recibe las coordenadas de origen y destino junto con el perfil sociodemográfico del viajero, construye el vector de variables de entrada al modelo consultando OSRM y OTP internamente, convierte las duraciones a horas para coincidir con las unidades del dataset de entrenamiento, aplica el escalado parcial y ejecuta la inferencia. El endpoint \texttt{/predict} usa el modelo activo; \texttt{/compare} ejecuta los tres modelos (XGBoost, Random Forest, DNN) sobre el mismo viaje y devuelve sus probabilidades comparadas; \texttt{/debug-features} expone el vector de características antes y después del escalado para validación del pipeline.
 
 % -------------------------------------------------------
 \section{Frontend: interfaz cartográfica}
@@ -117,7 +118,7 @@ La inferencia de elección modal es la operación más compleja del sistema porq
 
 \begin{figure}[htbp]
   \centering
-  \missingfigure{Diagrama de flujo del pipeline de inferencia: \texttt{POST /api/lpmc/predict} $\rightarrow$ \texttt{asyncio.gather}(OSRM$\times$3, OTP) $\rightarrow$ \texttt{build\_route\_features} $\rightarrow$ \texttt{build\_feature\_frame} $\rightarrow$ escalado parcial $\rightarrow$ \texttt{XGBoost.predict\_proba} $\rightarrow$ respuesta JSON.}
+  \includegraphics[width=\textwidth]{figs/PIPELINE_Inferencia.pdf}
   \caption{Pipeline de inferencia de elección modal.}
   \label{fig:pipeline_inferencia}
 \end{figure}
@@ -137,14 +138,14 @@ Las variables de entrada se dividen en dos grupos. El primero comprende las vari
     \multicolumn{3}{l}{\textit{Variables de ruta (derivadas de OSRM y OTP)}} \\
     \hline
     \texttt{distance}              & float, m       & Distancia en coche (OSRM driving). \\
-    \texttt{dur\_driving}          & float, s       & Tiempo de conducción (OSRM driving). \\
-    \texttt{dur\_cycling}          & float, s       & Tiempo en bicicleta (OSRM cycling). \\
-    \texttt{dur\_walking}          & float, s       & Tiempo a pie hasta destino (OSRM foot). \\
-    \texttt{dur\_pt\_access}       & float, s       & Tiempo del primer tramo a pie hasta la parada (OTP). \\
-    \texttt{dur\_pt\_bus}          & float, s       & Tiempo acumulado en autobús (OTP). \\
-    \texttt{dur\_pt\_rail}         & float, s       & Tiempo acumulado en ferroviario (OTP). \\
-    \texttt{dur\_pt\_int\_waiting} & float, s       & Tiempo de espera en transbordos (OTP). \\
-    \texttt{dur\_pt\_int\_walking} & float, s       & Desplazamiento a pie entre transbordos (OTP). \\
+    \texttt{dur\_driving}          & float, h       & Tiempo de conducción (OSRM driving). \\
+    \texttt{dur\_cycling}          & float, h       & Tiempo en bicicleta (OSRM cycling). \\
+    \texttt{dur\_walking}          & float, h       & Tiempo a pie hasta destino (OSRM foot). \\
+    \texttt{dur\_pt\_access}       & float, h       & Tiempo del primer tramo a pie hasta la parada (OTP). \\
+    \texttt{dur\_pt\_bus}          & float, h       & Tiempo acumulado en autobús (OTP). \\
+    \texttt{dur\_pt\_rail}         & float, h       & Tiempo acumulado en ferroviario (OTP). \\
+    \texttt{dur\_pt\_int\_waiting} & float, h       & Tiempo de espera en transbordos (OTP). \\
+    \texttt{dur\_pt\_int\_walking} & float, h       & Desplazamiento a pie entre transbordos (OTP). \\
     \texttt{pt\_n\_interchanges}   & int, $\geq 0$  & Número de transbordos (OTP). \\
     \hline
     \multicolumn{3}{l}{\textit{Variables sociodemográficas y contextuales (aportadas por el usuario)}} \\
@@ -165,7 +166,7 @@ Las variables de entrada se dividen en dos grupos. El primero comprende las vari
 
 Las variables continuas que presentaban distribución asimétrica en el conjunto de entrenamiento se normalizan con un escalado parcial aplicado solo a las columnas correspondientes, preservando las variables binarias y de conteo sin transformar. El modelo devuelve un vector de cuatro probabilidades correspondientes a los modos \textit{walk}, \textit{cycle}, \textit{pt} y \textit{drive}; el modo predicho es el de mayor probabilidad.
 
-La variante activa del modelo se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT}. El valor por defecto (\texttt{nohh}) carga el modelo entrenado sin \texttt{household\_id} como variable de entrada, variante apropiada para inferencia en producción ya que ese identificador no está disponible en tiempo de ejecución. La variante \texttt{legacy} mantiene compatibilidad con los artefactos originales del entrenamiento y neutraliza \texttt{household\_id} fijándolo a cero.
+El modelo activo para \texttt{/predict} se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto). Ninguno de los tres modelos incluye \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; solo se usó durante el entrenamiento como criterio de agrupación en la validación cruzada.
 
 % -------------------------------------------------------
 \section{Decisiones técnicas (ch5)}
@@ -184,6 +185,6 @@ A lo largo del desarrollo se tomaron varias decisiones de diseño que condiciona
 
 \textbf{Colores de línea GTFS deterministas.} El feed GTFS de Toledo no incluye de forma consistente los campos \texttt{route\_color} y \texttt{route\_text\_color}. Para garantizar consistencia visual entre sesiones, el color de cada línea se deriva de forma determinista a partir del \texttt{route\_id} mediante una función de hash, de modo que la misma línea siempre se muestra con el mismo color independientemente del estado del servidor.
 
-\textbf{Carga perezosa de artefactos del modelo.} El modelo XGBoost y el escalador se cargan desde disco la primera vez que se recibe una petición de inferencia y se mantienen en caché a nivel de módulo durante toda la vida del proceso. Esta estrategia de carga perezosa (\textit{lazy loading}) evita aumentar el tiempo de arranque del contenedor y garantiza que los artefactos se cargan exactamente una vez, independientemente del número de peticiones concurrentes que sirva el servidor.
+\textbf{Carga perezosa de artefactos del modelo.} Los modelos (XGBoost, Random Forest, DNN) y sus escaladores se cargan desde disco la primera vez que se solicita cada variante y se mantienen en caché indexada por variante a nivel de módulo durante toda la vida del proceso. Esta estrategia de carga perezosa (\textit{lazy loading}) evita aumentar el tiempo de arranque del contenedor y garantiza que cada artefacto se carga exactamente una vez, independientemente del número de peticiones concurrentes.
 
 \textbf{Penalización de variables PT sin itinerario real.} Cuando OTP no encuentra un itinerario con transporte público, las variables de ruta PT (\texttt{dur\_pt\_access}, \texttt{dur\_pt\_bus}, \texttt{dur\_pt\_rail}, \texttt{pt\_n\_interchanges}) toman valor cero, lo que puede inducir al modelo a predecir \textit{pt} como modo mayoritario en trayectos sin servicio real. La solución, pendiente de implementar en el momento de escritura, consiste en asignar un valor de penalización alto a estas variables cuando OTP no devuelva un itinerario con al menos un tramo de transporte público.
