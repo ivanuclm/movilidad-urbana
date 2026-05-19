@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 """
 Genera las tablas comparativas de Accuracy y GMPCA para los tres modelos
-entrenados sobre el dataset LPMC (RandomForest, XGBoost, DNN).
+entrenados sobre el dataset LPMC (Random Forest, XGBoost, DNN).
+
+Prerequisito: haber ejecutado 03_train_xgb.py, 04_train_rf.py y 05_train_dnn.py
+para que existan los ficheros de métricas en artifacts/.
 
 Uso:
-    python 07_compare_models.py
+    python 06_compare_models.py
 
 Salida:
     - Tabla en texto plano por consola
-    - artifacts/lpmc_model_comparison.json  (métricas consolidadas)
-    - artifacts/lpmc_comparison_train.tex   (tabla LaTeX, conjunto train)
-    - artifacts/lpmc_comparison_test.tex    (tabla LaTeX, conjunto test)
+    - artifacts/lpmc_model_comparison.json  (métricas consolidadas de los 3 modelos)
+    - artifacts/lpmc_comparison_train.tex   (tabla LaTeX para CV train)
+    - artifacts/lpmc_comparison_test.tex    (tabla LaTeX para test set)
 
 Los ficheros .tex están listos para incluir con \\input{} en el capítulo 5.
+Las métricas provienen de los JSON generados por cada script de entrenamiento;
+este script no re-entrena ningún modelo.
 """
 
 import json
@@ -21,6 +26,7 @@ import pathlib
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 
+# Orden: RF, XGBoost, DNN (coincide con el orden de presentación en la memoria).
 MODELS = [
     {
         "label": "Random Forest",
@@ -38,6 +44,7 @@ MODELS = [
 
 
 def load_metrics(metrics_file: str) -> dict | None:
+    """Carga el JSON de métricas de un modelo. Devuelve None si no existe."""
     path = ARTIFACTS_DIR / metrics_file
     if not path.exists():
         return None
@@ -46,10 +53,12 @@ def load_metrics(metrics_file: str) -> dict | None:
 
 
 def pct(value: float) -> str:
+    """Convierte un ratio [0,1] a cadena de porcentaje con 2 decimales."""
     return f"{value * 100:.2f}"
 
 
 def print_table(rows: list[dict], split: str, display_name: str) -> None:
+    """Imprime una tabla comparativa por consola para el split indicado ('train_cv' o 'test')."""
     header = f"{'Modelo':<18}  {'Accuracy':>10}  {'GMPCA':>8}"
     sep = "-" * len(header)
     print(f"\n  {display_name}")
@@ -66,6 +75,11 @@ def print_table(rows: list[dict], split: str, display_name: str) -> None:
 
 
 def build_latex_table(rows: list[dict], split: str, caption: str, label: str) -> str:
+    """Genera una tabla LaTeX (booktabs) con las métricas del split indicado.
+
+    La tabla usa \\toprule / \\midrule / \\bottomrule (paquete booktabs).
+    El \\caption va ANTES de \\begin{tabular} siguiendo el estilo de la memoria.
+    """
     lines = []
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\caption{" + caption + r"}")
@@ -95,10 +109,11 @@ def main() -> None:
         if metrics is None:
             print(f"[AVISO] No encontrado: {model_def['metrics_file']} — modelo no entrenado todavía.")
 
+    # Imprime las dos tablas: CV train y test holdout.
     print_table(rows, "train_cv", "TRAIN (5-fold GroupKFold CV, household_id como grupo)")
     print_table(rows, "test", "TEST SET")
 
-    # JSON consolidado
+    # JSON consolidado: útil para scripts de análisis o notebooks.
     consolidated = {
         row["label"]: row["metrics"]
         for row in rows
@@ -108,7 +123,7 @@ def main() -> None:
     out_json.write_text(json.dumps(consolidated, indent=2))
     print(f"\nJSON consolidado guardado en: {out_json}")
 
-    # LaTeX train
+    # LaTeX para el conjunto de entrenamiento (CV).
     latex_train = build_latex_table(
         rows,
         split="train_cv",
@@ -119,11 +134,11 @@ def main() -> None:
     out_train.write_text(latex_train)
     print(f"LaTeX (train) guardado en   : {out_train}")
 
-    # LaTeX test
+    # LaTeX para el conjunto de test temporal (survey_year 3).
     latex_test = build_latex_table(
         rows,
         split="test",
-        caption="Resultados en el conjunto de test (dataset LPMC)",
+        caption="Resultados en el conjunto de test temporal (dataset LPMC, survey\\_year 3)",
         label="tab:lpmc_test_results",
     )
     out_test = ARTIFACTS_DIR / "lpmc_comparison_test.tex"

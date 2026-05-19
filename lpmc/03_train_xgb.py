@@ -1,4 +1,28 @@
 #!/usr/bin/env python
+"""
+Entrenamiento del modelo XGBoost para clasificación de modo de transporte (LPMC).
+
+Entrada : data/preprocessed/LPMC_train.csv
+          data/preprocessed/LPMC_test.csv
+          artifacts/lpmc_xgb_best_params.json  (opcional; generado por el tutor con HyperOpt)
+
+Salida  : models/xgb_lpmc.joblib         — modelo XGBoost + lista de features
+          models/xgb_lpmc_scaler.joblib  — StandardScaler + lista de columnas escaladas
+          artifacts/xgb_lpmc_metrics.json — métricas CV y test (accuracy, GMPCA)
+
+Flujo de entrenamiento:
+  1. GroupKFold(5) agrupado por household_id para estimar métricas en CV sin fuga
+     de datos entre viajes del mismo hogar.
+  2. En cada fold: StandardScaler ajustado solo sobre el fold de train (no sobre val).
+  3. Modelo final entrenado sobre todo el train set con el scaler ajustado en todo el train.
+  4. Evaluación sobre test set temporalmente separado (survey_year 3).
+
+Variables de entorno:
+  FAST_N_ESTIMATORS — sobreescribe n_estimators para pruebas rápidas (e.g., FAST_N_ESTIMATORS=50)
+
+Uso:
+    python 03_train_xgb.py
+"""
 
 import json
 import os
@@ -20,6 +44,11 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_CV_FOLDS = 5
 
+# Columnas que reciben escalado estándar (media 0, desviación 1).
+# Las variables binarias (female, driving_license, purpose_*, fueltype_*) y
+# de conteo (pt_n_interchanges) NO se escalan: los árboles son invariantes al
+# escalado, pero mantener esta lista permite reutilizar el scaler en el pipeline
+# de inferencia del backend, que sí aplica el mismo escalado parcial.
 DEFAULT_SCALED_FEATURES = [
     "day_of_week",
     "start_time_linear",
@@ -41,6 +70,12 @@ DEFAULT_SCALED_FEATURES = [
 
 
 def load_best_params() -> tuple[dict, list]:
+    """Carga hiperparámetros optimizados con HyperOpt por el tutor (1000 evaluaciones TPE).
+
+    Si el JSON no existe, devuelve un conjunto de parámetros baseline y la lista
+    de columnas escaladas por defecto. El JSON incluye también la lista de
+    scaled_features usada durante la búsqueda, que puede diferir de DEFAULT_SCALED_FEATURES.
+    """
     params_path = ARTIFACTS_DIR / "lpmc_xgb_best_params.json"
     if not params_path.exists():
         return {}, DEFAULT_SCALED_FEATURES
@@ -52,13 +87,24 @@ def load_best_params() -> tuple[dict, list]:
 
 
 def gmpca_from_proba(proba: np.ndarray, y_true: np.ndarray) -> float:
-    """GMPCA = exp( -cross entropy )."""
+    """GMPCA = exp( -cross entropy ).
+
+    Geometric Mean Probability of Correct Alternative: probabilidad media asignada
+    a la clase correcta, expresada como media geométrica. Es equivalente a
+    exp(-H) donde H es la entropía cruzada. Valores más altos son mejores;
+    un clasificador aleatorio tendría GMPCA = 1/4 = 0.25 con 4 clases.
+    """
     proba = np.clip(proba, 1e-12, 1.0)
     log_like = np.log(proba[np.arange(len(y_true)), y_true]).sum()
     return float(np.exp(log_like / len(y_true)))
 
 
 def scale(X_tr: pd.DataFrame, X_val: pd.DataFrame, cols: list[str]):
+    """Ajusta StandardScaler en X_tr y aplica la misma transformación a X_val.
+
+    El scaler se ajusta SOLO sobre el fold de entrenamiento para evitar fuga
+    de información de validación hacia el proceso de escalado.
+    """
     sc = StandardScaler()
     Xts = X_tr.copy()
     Xvs = X_val.copy()
@@ -81,12 +127,17 @@ def main() -> None:
     y_train = train[target_col].astype(int).values
     y_test = test[target_col].astype(int).values
 
-    # household_id: solo para GroupKFold, nunca entra como feature.
+    # household_id: se extrae para usarlo como grupos en GroupKFold pero NO
+    # se incluye como feature. Los viajes del mismo hogar tienen características
+    # sociodemográficas idénticas; si un hogar aparece en train y val, el modelo
+    # puede aprender patrones de hogar específicos que no generalizan.
     groups = train["household_id"].values if "household_id" in train.columns else None
 
     X_train = train.drop(columns=[target_col, "household_id"], errors="ignore")
     X_test = test.drop(columns=[target_col, "household_id"], errors="ignore")
 
+    # Garantizar columnas simétricas entre train y test: el one-hot de purpose/fueltype
+    # puede generar columnas distintas si alguna categoría no aparece en el test set.
     for c in set(X_train.columns) - set(X_test.columns):
         X_test[c] = 0
     for c in set(X_test.columns) - set(X_train.columns):
@@ -115,13 +166,18 @@ def main() -> None:
             "n_jobs": -1,
         }
 
+    # FAST_N_ESTIMATORS permite reducir el número de árboles para pruebas rápidas
+    # sin modificar el fichero de hiperparámetros.
     fast_override = os.environ.get("FAST_N_ESTIMATORS")
     if fast_override:
         model_params = dict(model_params)
         model_params["n_estimators"] = int(fast_override)
         print(f"FAST_N_ESTIMATORS activo -> n_estimators={model_params['n_estimators']}")
 
-    # --- 5-fold GroupKFold CV (métricas de entrenamiento) ---
+    # --- 5-fold GroupKFold CV ---
+    # GroupKFold asegura que todos los viajes de un mismo hogar caen en el mismo fold.
+    # Esto es equivalente a un leave-one-household-out aproximado y da una estimación
+    # más realista de la capacidad de generalización a hogares no vistos.
     cv_accs: list[float] = []
     cv_gmpcas: list[float] = []
 
@@ -159,6 +215,8 @@ def main() -> None:
         print(f"\nCV medio  -> Accuracy: {acc_cv*100:.2f}%  GMPCA: {gmpca_cv*100:.2f}%")
 
     # --- Modelo final sobre todo el conjunto de entrenamiento ---
+    # El scaler se ajusta ahora sobre TODO el train set. Este es el scaler que
+    # se guarda y se usa en producción (lpmc_inference.py).
     print("\nEntrenando modelo final sobre todo el train set...")
     X_train_s, X_test_s, scaler = scale(X_train, X_test, scaled_features)
 
@@ -174,6 +232,8 @@ def main() -> None:
     print("\nClassification report (test):")
     print(classification_report(y_test, y_test_pred, target_names=["walk", "cycle", "pt", "drive"]))
 
+    # Guardado de artefactos: el bundle incluye feature_names para que el backend
+    # pueda verificar el orden de columnas en tiempo de inferencia.
     model_path = MODELS_DIR / "xgb_lpmc.joblib"
     scaler_path = MODELS_DIR / "xgb_lpmc_scaler.joblib"
     joblib.dump({"model": clf, "feature_names": X_train_s.columns.tolist()}, model_path)

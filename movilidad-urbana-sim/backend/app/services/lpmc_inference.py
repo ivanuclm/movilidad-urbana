@@ -1,4 +1,30 @@
-﻿from __future__ import annotations
+"""
+Pipeline de inferencia de elección modal (LPMC).
+
+Recibe una petición con coordenadas de origen/destino y perfil sociodemográfico,
+consulta en paralelo OSRM (3 perfiles) y OTP, construye el vector de características
+que espera el modelo, aplica el escalado parcial y devuelve las probabilidades
+para cada modo de transporte (walk, cycle, pt, drive).
+
+Funciones públicas:
+  run_lpmc_inference()      — inferencia con el modelo activo (LPMC_MODEL_VARIANT)
+  run_lpmc_compare()        — inferencia simultánea con los 3 modelos (xgb, rf, dnn)
+  run_lpmc_debug_features() — expone el vector de features antes/después del escalado
+
+Carga de artefactos:
+  Los modelos y escaladores se cargan desde disco la primera vez que se solicita
+  cada variante y se mantienen en _ARTIFACTS_CACHE durante toda la vida del proceso.
+  Esta estrategia de lazy loading evita aumentar el tiempo de arranque del contenedor
+  y garantiza que cada artefacto se carga exactamente una vez, independientemente
+  del número de peticiones concurrentes.
+
+Unidades de tiempo:
+  OSRM y OTP devuelven duraciones en segundos. El dataset LPMC almacena todas
+  las duraciones en horas. La conversión s2h = 1/3600 se aplica en
+  _build_route_features() antes de ensamblar el vector de entrada al modelo.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import os
@@ -16,6 +42,7 @@ from app.api.routes_otp import (
 )
 from app.services.osrm_client import get_route
 
+# Etiquetas de modo para el vector de salida del modelo (índice → nombre).
 MODE_LABELS = {
     0: "walk",
     1: "cycle",
@@ -23,10 +50,13 @@ MODE_LABELS = {
     3: "drive",
 }
 
-# Values used in the professor pipeline after one-hot encoding.
+# Valores válidos para las variables categóricas del perfil de usuario.
+# Deben coincidir exactamente con los prefijos generados por get_dummies en 02_preprocess.py.
 PURPOSE_VALUES = ["B", "HBE", "HBO", "HBW", "NHBO"]
 FUELTYPE_VALUES = ["Average", "Diesel", "Hybrid", "Petrol"]
 
+# Cache de artefactos indexado por variante ("xgb", "rf", "dnn").
+# Cada entrada contiene: model, feature_names, scaler, scaled_features, model_path, scaler_path.
 _ARTIFACTS_CACHE: dict[str, dict[str, Any]] = {}
 
 ALL_VARIANTS = ["xgb", "rf", "dnn"]
@@ -35,8 +65,13 @@ ALL_VARIANTS = ["xgb", "rf", "dnn"]
 class TorchModalWrapper:
     """Envuelve un modelo PyTorch con la interfaz predict_proba de sklearn.
 
-    El bundle joblib almacena la ruta al .pt y n_features; el modelo
-    se carga en memoria la primera vez que se llama a predict_proba.
+    El bundle joblib almacena la ruta al fichero .pt y n_features. El modelo
+    PyTorch se carga en memoria la primera vez que se llama a predict_proba
+    (lazy loading) y se mantiene en self._model para llamadas posteriores.
+
+    La arquitectura se reconstruye explícitamente desde n_features en lugar de
+    almacenar el objeto nn.Module en el joblib, lo que evita problemas de
+    compatibilidad entre versiones de PyTorch al deserializar.
     """
 
     def __init__(self, pt_path: str, n_features: int) -> None:
@@ -45,6 +80,7 @@ class TorchModalWrapper:
         self._model: Any = None
 
     def __getstate__(self) -> dict:
+        # Excluir el modelo PyTorch de la serialización joblib: solo se guarda la ruta.
         state = self.__dict__.copy()
         state["_model"] = None
         return state
@@ -54,16 +90,17 @@ class TorchModalWrapper:
         self._model = None
 
     def _ensure_loaded(self) -> None:
+        """Carga el modelo desde disco si todavía no está en memoria."""
         if self._model is None:
             import torch
             import torch.nn as nn
 
             pt_path = Path(self._path)
             if not pt_path.exists():
-                # El bundle puede almacenar una ruta absoluta de Windows que no
-                # existe en el contenedor Linux. Path.name no interpreta '\' en
-                # Linux, así que normalizamos el separador antes de extraer el
-                # nombre del fichero.
+                # El bundle puede almacenar una ruta absoluta de Windows (con '\')
+                # que no existe en el contenedor Linux. Path.name no interpreta '\'
+                # en Linux, por lo que se normaliza el separador antes de extraer
+                # el nombre del fichero y buscar en la ubicación canónica.
                 filename = Path(self._path.replace("\\", "/")).name
                 fallback = _project_root() / "lpmc" / "models" / filename
                 if not fallback.exists():
@@ -72,6 +109,7 @@ class TorchModalWrapper:
                     )
                 pt_path = fallback
 
+            # Reconstruir la misma arquitectura que build_model() en 05_train_dnn.py.
             model = nn.Sequential(
                 nn.Linear(self._n_features, 128), nn.BatchNorm1d(128), nn.ReLU(), nn.Dropout(0.3),
                 nn.Linear(128, 64),               nn.BatchNorm1d(64),  nn.ReLU(), nn.Dropout(0.2),
@@ -98,12 +136,19 @@ class TorchModalWrapper:
 
 
 def _project_root() -> Path:
-    # .../movilidad-urbana-sim/backend/app/services -> .../TFM
+    # Sube 4 niveles desde este fichero:
+    # .../movilidad-urbana-sim/backend/app/services/lpmc_inference.py
+    #                         ↑4          ↑3    ↑2       ↑1
+    # → .../TFM/
     return Path(__file__).resolve().parents[4]
 
 
 def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
-    # Env var overrides solo para la variante activa por defecto.
+    """Devuelve (model_path, scaler_path) para la variante indicada.
+
+    Para la variante activa por defecto (LPMC_MODEL_VARIANT), acepta
+    sobreescritura mediante variables de entorno LPMC_MODEL_PATH y LPMC_SCALER_PATH.
+    """
     default_variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
     if variant == default_variant:
         model_override = os.environ.get("LPMC_MODEL_PATH")
@@ -113,27 +158,15 @@ def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
 
     models_dir = _project_root() / "lpmc" / "models"
     if variant == "rf":
-        model_candidates = [
-            models_dir / "rf_lpmc.joblib",
-        ]
-        scaler_candidates = [
-            models_dir / "rf_lpmc_scaler.joblib",
-        ]
+        model_candidates = [models_dir / "rf_lpmc.joblib"]
+        scaler_candidates = [models_dir / "rf_lpmc_scaler.joblib"]
     elif variant == "dnn":
-        model_candidates = [
-            models_dir / "dnn_lpmc.joblib",
-        ]
-        scaler_candidates = [
-            models_dir / "dnn_lpmc_scaler.joblib",
-        ]
+        model_candidates = [models_dir / "dnn_lpmc.joblib"]
+        scaler_candidates = [models_dir / "dnn_lpmc_scaler.joblib"]
     else:
-        # "xgb" (default)
-        model_candidates = [
-            models_dir / "xgb_lpmc.joblib",
-        ]
-        scaler_candidates = [
-            models_dir / "xgb_lpmc_scaler.joblib",
-        ]
+        # "xgb" (variante por defecto)
+        model_candidates = [models_dir / "xgb_lpmc.joblib"]
+        scaler_candidates = [models_dir / "xgb_lpmc_scaler.joblib"]
 
     model_path = next((p for p in model_candidates if p.exists()), None)
     if model_path is None:
@@ -151,6 +184,7 @@ def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
 
 
 def _load_artifacts(variant: str | None = None) -> dict[str, Any]:
+    """Carga (o devuelve de caché) los artefactos del modelo para la variante dada."""
     global _ARTIFACTS_CACHE
     if variant is None:
         variant = os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower()
@@ -164,6 +198,7 @@ def _load_artifacts(variant: str | None = None) -> dict[str, Any]:
     model_bundle = joblib.load(model_path)
     scaler_bundle = joblib.load(scaler_path)
 
+    # El bundle DNN contiene "pt_path" en lugar de "model"; se envuelve en TorchModalWrapper.
     if "pt_path" in model_bundle:
         model = TorchModalWrapper(model_bundle["pt_path"], model_bundle["n_features"])
     else:
@@ -187,6 +222,7 @@ async def _fetch_otp_itinerary(
     destination_lon: float,
     itinerary_index: int | None,
 ) -> dict:
+    """Consulta OTP y devuelve el itinerario seleccionado con sus metadatos."""
     req = OtpRouteRequest(
         origin=Point(lat=origin_lat, lon=origin_lon),
         destination=Point(lat=destination_lat, lon=destination_lon),
@@ -221,6 +257,7 @@ async def _fetch_otp_itinerary(
 
 
 def _is_transit_leg(leg: dict) -> bool:
+    """Devuelve True si el tramo usa transporte público (bus, rail, metro, etc.)."""
     if leg.get("transitLeg"):
         return True
     mode = (leg.get("mode") or "").upper()
@@ -228,6 +265,21 @@ def _is_transit_leg(leg: dict) -> bool:
 
 
 def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) -> dict[str, float | int]:
+    """Extrae las 10 variables de ruta a partir de las respuestas de OSRM y OTP.
+
+    Conversión de unidades: OSRM y OTP devuelven duraciones en segundos.
+    El dataset LPMC almacena todas las duraciones en horas, por lo que se
+    multiplica por s2h = 1/3600 antes de ensamblar el vector de features.
+
+    Variables derivadas del itinerario OTP:
+    - dur_pt_access: duración del primer tramo a pie (acceso a la primera parada)
+    - dur_pt_bus:    suma de duración de todos los tramos BUS
+    - dur_pt_rail:   suma de duración de RAIL/SUBWAY/TRAM/METRO/FUNICULAR
+    - dur_pt_int_waiting: tiempo de espera en intercambios (diferencia entre
+      duración total del itinerario y suma de duración de los tramos individuales)
+    - dur_pt_int_walking: tiempo a pie dentro del itinerario excluyendo acceso y egreso
+    - pt_n_interchanges: número de intercambios = (tramos de tránsito - 1)
+    """
     driving = osrm_results["driving"]
     cycling = osrm_results["cycling"]
     foot = osrm_results["foot"]
@@ -263,16 +315,17 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
         if (legs[-1].get("mode") or "").upper() == "WALK":
             last_walk = float(legs[-1].get("duration") or 0.0)
 
+    # Tiempo a pie en intercambios = total a pie menos acceso (primer tramo) y egreso (último).
     inter_walk = max(total_walk - first_walk - last_walk, 0.0)
 
-    # In many OTP outputs this residual is ~0, but keeping it here gives us a
-    # bounded proxy for interchange waiting time when present.
+    # Tiempo de espera en intercambios = diferencia entre la duración total del
+    # itinerario y la suma de los tramos individuales. En la mayoría de itinerarios
+    # de Toledo este residual es ~0, pero la variable está presente en el dataset LPMC.
     otp_total = float(itinerary.get("duration") or 0.0)
     sum_legs = float(sum(float(leg.get("duration") or 0.0) for leg in legs))
     inter_waiting = max(otp_total - sum_legs, 0.0)
 
-    # El dataset LPMC almacena duraciones en horas; OSRM/OTP devuelven segundos.
-    s2h = 1.0 / 3600.0
+    s2h = 1.0 / 3600.0  # segundos → horas (unidad del dataset LPMC)
     return {
         "distance": float(driving["distance_m"]),
         "dur_walking": float(foot["duration_s"]) * s2h,
@@ -288,6 +341,17 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
 
 
 def _build_feature_frame(payload: dict, route_features: dict[str, float | int], variant: str | None = None):
+    """Ensambla el vector de entrada al modelo (shape: 1 × n_features).
+
+    El orden de columnas es el que el modelo espera (feature_names del bundle),
+    inicializado a 0.0. Las variables numéricas se copian directamente; las
+    categóricas (purpose, fueltype) se one-hot codifican activando la columna
+    correspondiente.
+
+    household_id nunca se incluye en la API. Si el modelo fue entrenado con
+    household_id como feature (variantes legacy), se fija a 0.0 para neutralizar
+    su efecto en lugar de rechazar la petición.
+    """
     import numpy as np
 
     artifacts = _load_artifacts(variant)
@@ -295,8 +359,6 @@ def _build_feature_frame(payload: dict, route_features: dict[str, float | int], 
 
     row = {name: 0.0 for name in feature_names}
 
-    # Keep household_id out of the API contract. If a legacy model still
-    # contains this feature, neutralize it to a fixed value.
     if "household_id" in row:
         row["household_id"] = 0.0
 
@@ -318,12 +380,14 @@ def _build_feature_frame(payload: dict, route_features: dict[str, float | int], 
         if col in row:
             row[col] = float(value)
 
+    # One-hot encoding de purpose: activa solo la columna purpose_<valor>.
     purpose = payload.get("purpose")
     if purpose in PURPOSE_VALUES:
         key = f"purpose_{purpose}"
         if key in row:
             row[key] = 1.0
 
+    # One-hot encoding de fueltype: activa solo la columna fueltype_<valor>.
     fueltype = payload.get("fueltype")
     if fueltype in FUELTYPE_VALUES:
         key = f"fueltype_{fueltype}"
@@ -335,6 +399,13 @@ def _build_feature_frame(payload: dict, route_features: dict[str, float | int], 
 
 
 def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
+    """Aplica el escalado parcial y ejecuta la inferencia del modelo.
+
+    Solo se escalan las columnas de SCALED_FEATURES (variables continuas).
+    Las variables binarias (female, driving_license, purpose_*, fueltype_*) y
+    de conteo (pt_n_interchanges) no se escalan; el scaler fue ajustado solo
+    sobre las columnas continuas durante el entrenamiento.
+    """
     import numpy as np
 
     artifacts = _load_artifacts(variant)
@@ -356,12 +427,16 @@ def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
 
     return {
         "predicted_mode": MODE_LABELS.get(pred_idx, str(pred_idx)),
+        # "confidence" es la probabilidad máxima (max del softmax). Se documenta
+        # en la API como "probabilidad asignada al modo predicho".
         "confidence": float(np.max(proba)),
+        # "probabilities" es la distribución completa sobre los 4 modos.
         "probabilities": probabilities,
     }
 
 
 def _build_debug_payload(x, feature_names: list[str], otp: dict, route_features: dict[str, float | int]) -> dict:
+    """Construye la respuesta del endpoint /debug-features con el vector raw y escalado."""
     artifacts = _load_artifacts()
     scaler = artifacts["scaler"]
     scaled_features = [c for c in artifacts["scaled_features"] if c in feature_names]
@@ -397,6 +472,14 @@ def _build_debug_payload(x, feature_names: list[str], otp: dict, route_features:
 
 
 async def run_lpmc_inference(body: dict) -> dict:
+    """Ejecuta la inferencia completa con el modelo activo (LPMC_MODEL_VARIANT).
+
+    Lanza en paralelo con asyncio.gather:
+      - 3 llamadas a OSRM (driving, cycling, foot)
+      - 1 llamada a OTP (itinerario de transporte público)
+    Construye el vector de features, aplica el escalado y devuelve la predicción
+    junto con las variables de ruta para transparencia.
+    """
     origin = body["origin"]
     destination = body["destination"]
 
@@ -450,7 +533,14 @@ async def run_lpmc_inference(body: dict) -> dict:
 
 
 async def run_lpmc_compare(body: dict) -> dict:
-    """Ejecuta inferencia con los tres modelos (xgb, rf, dnn) sobre el mismo viaje."""
+    """Ejecuta inferencia con los tres modelos (xgb, rf, dnn) sobre el mismo viaje.
+
+    Las 4 llamadas a OSRM/OTP se hacen una sola vez (asyncio.gather) y el
+    vector de features resultante se reutiliza para los 3 modelos. Los artefactos
+    de cada variante se cargan de forma lazy desde _ARTIFACTS_CACHE.
+    Si un modelo no está disponible (FileNotFoundError), su entrada en results
+    se establece a None para que el frontend lo muestre como no disponible.
+    """
     origin = body["origin"]
     destination = body["destination"]
 
@@ -488,6 +578,11 @@ async def run_lpmc_compare(body: dict) -> dict:
 
 
 async def run_lpmc_debug_features(body: dict) -> dict:
+    """Devuelve el vector de características antes y después del escalado.
+
+    Útil para validar que el pipeline de inferencia produce los mismos valores
+    que el pipeline de entrenamiento para un viaje concreto.
+    """
     origin = body["origin"]
     destination = body["destination"]
 

@@ -1,4 +1,18 @@
 #!/usr/bin/env python
+"""
+Análisis exploratorio del dataset LPMC (London Passenger Mode Choice).
+
+Entrada : data/raw/LPMC_dataset.csv
+Salida  : artifacts/lpmc_column_summary.csv  — resumen por columna (tipo, únicos, ejemplos)
+          artifacts/lpmc_column_summary.json  — mismo contenido en JSON para consultas programáticas
+
+Uso:
+    python 01_explore.py
+
+Este script no modifica el dataset ni genera artefactos de modelo. Su único
+propósito es entender la estructura del CSV original antes de pasar al
+preprocesado (02_preprocess.py).
+"""
 
 from pathlib import Path
 import json
@@ -28,7 +42,8 @@ def main() -> None:
     info_str = buf.getvalue()
     print(info_str)
 
-    # Resumen por columna: tipo, numero de valores unicos, ejemplos
+    # Resumen por columna: tipo, número de valores únicos y muestra de valores.
+    # Para columnas con ≤10 únicos se muestran todos; para las demás, los 5 primeros.
     summary_rows = []
     for col in df.columns:
         s = df[col]
