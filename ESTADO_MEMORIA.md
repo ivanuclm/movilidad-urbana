@@ -45,20 +45,20 @@
 - Pendiente: generar figuras arch_general, arch_docker (pipeline_inferencia: HECHO)
 
 ## ch5 — Implementación y resultados
-- COMPLETO (primera versión, 6 mayo 2026)
-- Secciones escritas:
-  - OSRM: datos Geofabrik CLM (~98 MB), evolución demoserver→FOSSGIS→local, pipeline extract/partition/customize, 3 contenedores
-  - OTP: selección GTFS (Madrid → Valencia → Toledo/UNAUTO), vigencia feed y decisión fecha fija 2025-12-01 12:00, construcción grafo
-  - GTFS estático: endpoints, coloración determinista de líneas
-  - Backend FastAPI: estructura modular 4 routers, OSRM multiperfil asíncrono, OTP itinerarios
-  - Frontend: React/Vite/TS, Leaflet, 3 presets (Commuter/Estudiante/Familiar), 4 basemaps, TanStack Query
-  - Dataset LPMC: 81.086 registros, 17.616 hogares, tabla de estadísticas
-  - Preprocesado: partición temporal por survey_year, one-hot purpose/fueltype, scaled features (tabla 16 variables)
-  - Entrenamiento: GroupKFold(5) por household_id, tabla hiperparámetros XGBoost, config RF, tabla arquitectura DNN
-  - Pipeline inferencia: asyncio.gather, bug s→h y resolución, lazy loading, compare 3 modelos
-  - Resultados: tablas CV y test los 3 modelos, interpretación perfiles, limitación dominio Londres→Toledo
-- Citas nuevas añadidas al bib: GeofabrikDownloads, NAPEMTMadrid, Grinsztajn2022TreesVsNNs
-- Pendiente de pasada del usuario: revisar y pulir prosa, añadir figuras de pantalla si se desea
+- Segunda versión completa (19 mayo 2026), estructura Opción A
+- Orden secciones: OSRM → OTP → GTFS → Backend → Frontend → ML (skeleton)
+- Tabla 4.3 (tab:lpmc_features) MOVIDA de ch4 a ch5 §5.6.1; ch4 actualizado con \ref
+- Secciones escritas y refinadas:
+  - §5.1 OSRM: tabla comparativa extractos OSM, evolución 3 fases, pipeline, despliegue+verificación
+  - §5.2 OTP: selección GTFS (Valencia→Madrid→Toledo), NAP, UNAUTO, vigencia feed, fecha fija, grafo, integración legs, penalización itinerario walk-only
+  - §5.3 GTFS: capa estática independiente de OTP, 4 endpoints, fix paginación Madrid, coloración hash
+  - §5.4 Backend: estructura modular, asyncio.gather OSRM, router OTP, penalización PT (sec propia), entorno Docker
+  - §5.5 Frontend: React/Vite/TS, marcadores CSS, polilíneas OSRM, legs OTP (walk/bus diferenciados), 4 basemaps, TanStack Query, 3 perfiles predefinidos
+  - §5.6 ML: skeleton con tabla dataset LPMC + tabla variables entrada (tab:lpmc_features) + comentarios TODO + tablas resultados CV y test
+- \missingfigure{} colocados: osrm_pipeline, osrm_rutas, otp_itinerario, gtfs_paradas, fastapi_docs, app_general, panel_comparacion (7 figuras pendientes de captura)
+- Sección ML interior (preprocesado, hiperparámetros, entrenamiento): placeholders con comentarios detallados para redactar con el tutor
+- Citas en uso: GeofabrikDownloads, NAPHome, NAPEMTValencia, NAPEMTMadrid, NAPToledoUrbano, OTPRouteRequest, Hillel2018LPMC, CSLPMC2019, MartinBaos2023Thesis, MartinBaos2023TRC
+- Pendiente: capturas de pantalla de la app para reemplazar \missingfigure{}, redacción bloque ML con tutor
 
 ## ch6 — Conclusiones y trabajo futuro
 - TODO VACÍO

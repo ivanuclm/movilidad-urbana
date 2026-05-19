@@ -125,44 +125,7 @@ La inferencia de elección modal es la operación más compleja del sistema porq
 
 Al recibir una petición \texttt{POST /api/lpmc/predict}, el backend lanza en paralelo cuatro consultas asíncronas mediante \texttt{asyncio.gather}: una a cada una de las tres instancias OSRM (conducción, bicicleta, a pie) y una a OpenTripPlanner. Con los resultados se construye el vector de características de ruta, se añaden las variables sociodemográficas del perfil recibido en la petición y se ensambla el vector completo de entrada al modelo.
 
-Las variables de entrada se dividen en dos grupos. El primero comprende las variables de ruta, derivadas de OSRM y OTP, que caracterizan el tiempo y la distancia de cada modo para el par origen-destino concreto. El segundo comprende las variables sociodemográficas y contextuales, que el usuario introduce a través del panel lateral de la interfaz. La Tabla~\ref{tab:lpmc_features} describe ambos grupos.
-
-\begin{table}[htbp]
-  \caption{Variables de entrada al modelo de elección modal. Las variables de ruta se derivan automáticamente de OSRM y OTP; las sociodemográficas las aporta el usuario.}
-  \label{tab:lpmc_features}
-  \centering
-  \begin{tabular}{llp{5.5cm}}
-    \hline
-    \textbf{Variable} & \textbf{Tipo / Rango} & \textbf{Descripción} \\
-    \hline
-    \multicolumn{3}{l}{\textit{Variables de ruta (derivadas de OSRM y OTP)}} \\
-    \hline
-    \texttt{distance}              & float, m       & Distancia en coche (OSRM driving). \\
-    \texttt{dur\_driving}          & float, h       & Tiempo de conducción (OSRM driving). \\
-    \texttt{dur\_cycling}          & float, h       & Tiempo en bicicleta (OSRM cycling). \\
-    \texttt{dur\_walking}          & float, h       & Tiempo a pie hasta destino (OSRM foot). \\
-    \texttt{dur\_pt\_access}       & float, h       & Tiempo del primer tramo a pie hasta la parada (OTP). \\
-    \texttt{dur\_pt\_bus}          & float, h       & Tiempo acumulado en autobús (OTP). \\
-    \texttt{dur\_pt\_rail}         & float, h       & Tiempo acumulado en ferroviario (OTP). \\
-    \texttt{dur\_pt\_int\_waiting} & float, h       & Tiempo de espera en transbordos (OTP). \\
-    \texttt{dur\_pt\_int\_walking} & float, h       & Desplazamiento a pie entre transbordos (OTP). \\
-    \texttt{pt\_n\_interchanges}   & int, $\geq 0$  & Número de transbordos (OTP). \\
-    \hline
-    \multicolumn{3}{l}{\textit{Variables sociodemográficas y contextuales (aportadas por el usuario)}} \\
-    \hline
-    \texttt{age}                   & int, [16, 100] & Edad del viajero. \\
-    \texttt{female}                & int, \{0, 1\}  & Sexo (1\,=\,mujer). \\
-    \texttt{driving\_license}      & int, \{0, 1\}  & Posesión de carnet de conducir. \\
-    \texttt{car\_ownership}        & int, [0, 3]    & Número de coches en el hogar. \\
-    \texttt{day\_of\_week}         & int, [1, 7]    & Día de la semana. \\
-    \texttt{start\_time\_linear}   & float, [0, 24] & Hora de inicio del viaje. \\
-    \texttt{cost\_transit}         & float, $\geq 0$& Coste del billete de transporte público. \\
-    \texttt{cost\_driving\_total}  & float, $\geq 0$& Coste total estimado del viaje en coche. \\
-    \texttt{purpose}               & cat. (one-hot) & Motivo del viaje: B, HBE, HBO, HBW, NHBO. \\
-    \texttt{fueltype}              & cat. (one-hot) & Tipo de combustible: Average, Diesel, Hybrid, Petrol. \\
-    \hline
-  \end{tabular}
-\end{table}
+Las variables de entrada al modelo proceden de tres fuentes diferenciadas: los tiempos y distancias por perfil de transporte calculados por OSRM, el desglose temporal del itinerario de transporte público proporcionado por OTP, y los datos sociodemográficos y contextuales que el usuario introduce en el formulario del panel lateral. El capítulo~\ref{ch:implementacion} detalla la construcción del vector de características y las transformaciones aplicadas.
 
 Las variables continuas que presentaban distribución asimétrica en el conjunto de entrenamiento se normalizan con un escalado parcial aplicado solo a las columnas correspondientes, preservando las variables binarias y de conteo sin transformar. El modelo devuelve un vector de cuatro probabilidades correspondientes a los modos \textit{walk}, \textit{cycle}, \textit{pt} y \textit{drive}; el modo predicho es el de mayor probabilidad.
 
