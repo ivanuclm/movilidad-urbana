@@ -11,7 +11,9 @@ Este capítulo detalla el proceso de construcción del simulador: las decisiones
 \subsection{Origen y características del extracto OSM}
 \label{subsec:impl_osrm_origen}
 
-OSRM requiere un extracto de OpenStreetMap preprocesado para la región de interés. Se utilizó el de Castilla-La Mancha, distribuido por Geofabrik en formato \texttt{.osm.pbf} \cite{GeofabrikDownloads}, por tres razones concurrentes: el ámbito geográfico del caso de estudio se circunscribe a Toledo y su área urbana; el mismo extracto lo reutiliza OpenTripPlanner para la red viaria peatonal (sección~\ref{sec:impl_otp}); y el coste de preprocesado es proporcional al tamaño del grafo. La Tabla~\ref{tab:osm_extractos} compara el extracto regional con otras alternativas evaluadas durante el desarrollo.
+OSRM trabaja sobre un extracto de OpenStreetMap (OSM), un fichero \texttt{.osm.pbf} que contiene la geometría de calles, carreteras y caminos de un territorio junto con sus atributos de velocidad, sentido y accesibilidad por modo. Geofabrik \cite{GeofabrikDownloads} distribuye estos extractos por jerarquía geográfica, desde continentes hasta comunidades autónomas.
+
+Se utilizó el extracto de Castilla-La Mancha, que encaja con el ámbito del proyecto tanto por el Máster (UCLM) como por el caso de estudio elegido, Toledo, ciudad para la que se encontró el feed GTFS con mayor cobertura y calidad de la región. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal (sección~\ref{sec:impl_otp}), por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
 
 \begin{table}[htbp]
   \caption{Comparativa de extractos OSM disponibles en Geofabrik.}
@@ -21,15 +23,15 @@ OSRM requiere un extracto de OpenStreetMap preprocesado para la región de inter
     \toprule
     \textbf{Extracto} & \textbf{Tamaño (.osm.pbf)} & \textbf{Uso en el proyecto} \\
     \midrule
-    Castilla-La Mancha  & \textasciitilde{}98 MB    & Producción (OSRM y OTP, Toledo) \\
-    Comunidad de Madrid & \textasciitilde{}330 MB   & Pruebas con feed GTFS EMT Madrid \\
+    Castilla-La Mancha  & \textasciitilde{}98 MB    & Producción (OSRM y OTP) \\
+    Comunidad de Madrid & \textasciitilde{}330 MB   & Pruebas intermedias con feed GTFS EMT Madrid \\
     España              & \textasciitilde{}1{,}3 GB & Evaluado, descartado \\
     Europa              & \textasciitilde{}31{,}9 GB & Evaluado, descartado \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-Durante el desarrollo se trabajó también con el extracto de la Comunidad de Madrid para las pruebas de integración con el feed GTFS de la EMT, dado que ese feed cubre exclusivamente el área metropolitana madrileña. Una vez seleccionado Toledo como caso de estudio definitivo se volvió al extracto regional de Castilla-La Mancha, que reduce el tiempo de preprocesado y el espacio en disco a una fracción respecto al de España completo, sin penalizar la calidad del enrutado dentro del área urbana de Toledo.
+Durante la búsqueda de un feed GTFS adecuado para el transporte público, descrita en la sección~\ref{sec:impl_otp}, se trabajó temporalmente con el extracto de la Comunidad de Madrid para probar la integración con el feed de la EMT. Una vez seleccionado Toledo como caso de estudio definitivo se volvió al extracto de Castilla-La Mancha.
 
 \subsection{Evolución del despliegue}
 \label{subsec:impl_osrm_evolucion}
@@ -45,17 +47,19 @@ La integración de OSRM evolucionó a través de tres fases sucesivas, cada una 
 \subsection{Pipeline de preprocesado por perfil}
 \label{subsec:impl_osrm_pipeline}
 
-El preprocesado OSRM consta de tres etapas que deben ejecutarse una sola vez por perfil, o cada vez que se actualice el extracto OSM. Todas las etapas se ejecutan con la imagen oficial de Docker, lo que fija la versión del software y garantiza la reproducibilidad del entorno.
+Para que OSRM pueda calcular rutas, el extracto \texttt{.osm.pbf} debe transformarse en una estructura de datos interna optimizada para consultas de camino mínimo. Este preprocesado se ejecuta una sola vez por perfil y solo hay que repetirlo si se actualiza el extracto.
+
+Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos de vía son accesibles, a qué velocidad, con qué restricciones de giro y qué preferencias de trazado aplican. Los tres archivos de perfil estándar (\texttt{car.lua}, \texttt{bicycle.lua} y \texttt{foot.lua}) están incluidos en la imagen oficial de Docker \texttt{osrm/osrm-backend} en \texttt{/opt/}, por lo que no es necesario descargarlos ni configurarlos externamente. Todas las etapas del preprocesado se ejecutan con esa misma imagen, lo que fija la versión del software y garantiza la reproducibilidad del entorno.
 
 \begin{enumerate}
-  \item \textbf{Extracción} (\texttt{osrm-extract}): transforma el \texttt{.osm.pbf} en una representación interna del grafo viario aplicando las restricciones de velocidad, giros y acceso definidas en el archivo de perfil Lua. Para el perfil de coche se usa \texttt{/opt/car.lua}, para bicicleta \texttt{/opt/bicycle.lua} y para peatón \texttt{/opt/foot.lua}. El resultado es el archivo \texttt{.osrm} junto con varios ficheros auxiliares de índice.
+  \item \textbf{Extracción} (\texttt{osrm-extract}): lee el \texttt{.osm.pbf} y construye el grafo viario interno aplicando las reglas del perfil Lua indicado: qué vías son transitables, a qué velocidad y con qué restricciones. El resultado es el fichero \texttt{.osrm} junto con varios auxiliares de índice.
 
-  \item \textbf{Particionado} (\texttt{osrm-partition}): divide el grafo en celdas jerárquicas para el algoritmo Multi-Level Dijkstra (MLD). Esta etapa es exclusiva del algoritmo MLD y debe preceder obligatoriamente a la customización.
+  \item \textbf{Particionado} (\texttt{osrm-partition}): divide el grafo en celdas jerárquicas para el algoritmo Multi-Level Dijkstra (MLD). Esta partición es la que permite calcular rutas de larga distancia en milisegundos, al limitar la búsqueda a fronteras entre celdas en lugar de explorar el grafo completo.
 
-  \item \textbf{Customización} (\texttt{osrm-customize}): ajusta los pesos de las aristas sobre la estructura de celdas generada en la etapa anterior, produciendo el grafo listo para servir peticiones de ruta.
+  \item \textbf{Customización} (\texttt{osrm-customize}): asigna los pesos finales de cada arista sobre la estructura de celdas anterior, produciendo el grafo listo para servir peticiones de ruta.
 \end{enumerate}
 
-El resultado de las tres etapas es el conjunto de ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}) para que los tres conjuntos de artefactos coexistan sin interferencia. Estos artefactos no se versionan en el repositorio dado su tamaño; el procedimiento completo de generación se recoge en el anexo~\ref{anx:despliegue}.
+El resultado de las tres etapas son los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}) para que los tres conjuntos de artefactos coexistan sin interferencia. Estos artefactos no se versionan en el repositorio por su tamaño; el procedimiento completo se recoge en el anexo~\ref{anx:despliegue}.
 
 \begin{figure}[htbp]
   \centering
@@ -86,21 +90,15 @@ La verificación del servicio consiste en una petición directa al endpoint de r
 \subsection{Fuente de datos GTFS y proceso de selección}
 \label{subsec:impl_otp_gtfs}
 
-La integración del transporte público requirió localizar un feed GTFS adecuado para el caso de estudio. La fuente empleada es el Punto de Acceso Nacional de Transporte Multimodal (NAP), gestionado por el Ministerio de Transportes y Movilidad Sostenible, que centraliza datos GTFS de operadores de transporte de toda España \cite{NAPHome}. El NAP fue presentado públicamente en junio de 2021 y se ha consolidado como la referencia principal para la obtención de datos de transporte público estructurados en el país.
+La fuente empleada para los datos de transporte público es el Punto de Acceso Nacional de Transporte Multimodal (NAP), gestionado por el Ministerio de Transportes y Movilidad Sostenible, que centraliza feeds GTFS de operadores de toda España \cite{NAPHome}.
 
-El proceso de selección del feed pasó por varias iteraciones antes de fijar Toledo como caso de estudio definitivo:
+Al tratarse de un proyecto de la UCLM, la búsqueda se orientó desde el principio a Castilla-La Mancha. Las opciones disponibles en la región resultaron ser escasas. Para Albacete no había ningún feed de bus urbano en el NAP. El feed de AISA cubría las ciudades de Ciudad Real y Seseña bajo un mismo operador, lo que generaba paradas dispersas entre dos localidades separadas por más de 150~km y hacía difícil presentarlo como un servicio urbano coherente sobre el mapa; además, en el momento del desarrollo no incluía geometría de rutas ni información de accesibilidad, dos requisitos imprescindibles para el proyecto.
 
-\begin{itemize}
-  \item \textbf{EMT Valencia} \cite{NAPEMTValencia}: consultado brevemente como referencia inicial. Descartado en favor de una ciudad dentro de Castilla-La Mancha para poder reutilizar el mismo extracto OSM regional tanto en OSRM como en OTP.
+Mientras se buscaba una alternativa regional, se trabajó con feeds de ciudades más grandes para poder avanzar en el desarrollo del sistema. La EMT de Valencia \cite{NAPEMTValencia} se usó brevemente como primera referencia. La EMT de Madrid \cite{NAPEMTMadrid} se usó durante más tiempo como banco de pruebas: con 4.914 paradas, 236 rutas y 87.137 viajes permitió validar la integración de OTP con datos reales y desarrollar los endpoints de la capa estática del backend. El volumen del feed también puso de manifiesto los límites del sistema: al visualizar la red, la respuesta de la API devolvía solo las primeras 500 paradas, dejando la red visualmente incompleta sobre el mapa. El problema se resolvió ajustando el límite de la consulta, que se fijó en 5.000 para el feed definitivo.
 
-  \item \textbf{EMT Madrid} \cite{NAPEMTMadrid}: feed de mayor volumen evaluado, con 4.914 paradas, 236 rutas y 87.137 viajes. Se utilizó como banco de pruebas para validar la integración de OTP con datos GTFS reales y para desarrollar los endpoints de la capa estática del backend. Para este feed fue necesario usar el extracto OSM de la Comunidad de Madrid. Durante estas pruebas se detectó un primer problema operativo: al mostrar las paradas sobre el mapa, la respuesta de la API se paginaba a las primeras 500 paradas, dejando la red visualmente incompleta. Este problema se resolvió ajustando el parámetro de límite de la consulta, fijado posteriormente en 5.000 para el feed definitivo.
+El feed elegido finalmente fue el de los autobuses urbanos de Toledo \cite{NAPToledoUrbano}. Con 268 paradas, 56 rutas y 46.597 viajes tiene un tamaño ajustado al alcance del simulador, incluye geometría de rutas e información de accesibilidad, y cubre bien el casco urbano, el polígono industrial y las urbanizaciones periféricas. El único campo ausente son las tarifas, algo que se resolvió añadiendo un campo de precio del billete en el panel lateral de la interfaz. Reutilizar el extracto OSM de Castilla-La Mancha ya disponible para OSRM fue también una ventaja: no fue necesario descargar ni preprocesar ningún fichero adicional.
 
-  \item \textbf{Buses urbanos de Toledo} \cite{NAPToledoUrbano}: feed definitivo. La elección responde a cuatro factores: encaja en el extracto OSM de Castilla-La Mancha ya disponible para OSRM; tiene un tamaño manejable (268 paradas, 56 rutas, 46.597 viajes); incluye geometría de rutas (\textit{shapes}), información de accesibilidad y cobertura del casco urbano de Toledo, el polígono industrial y las urbanizaciones periféricas; y el autor residía en la provincia de Toledo desde septiembre de 2025 por motivos laborales, lo que facilitó la validación cualitativa de los itinerarios generados contrastándolos con el conocimiento directo de la red.
-\end{itemize}
-
-En cuanto a otras opciones dentro de Castilla-La Mancha, el NAP disponía de datos de AISA para Ciudad Real y Seseña, pero sin geometría de rutas ni información de accesibilidad, y con paradas geográficamente dispersas a lo largo de un corredor de varias decenas de kilómetros que no correspondía a un servicio urbano de la misma naturaleza que el de Toledo. Para Albacete no se encontró ningún feed de bus urbano con cobertura y calidad suficientes en el momento del desarrollo.
-
-Un detalle relevante durante el proceso: el feed inicialmente descargado correspondía al operador «Autobuses Toledo». Al descargar una versión posterior, el operador había cambiado de denominación a UNAUTO S.L. (Grupo Ruiz). El formato de los ficheros GTFS permaneció idéntico (\texttt{agency.txt}, \texttt{calendar\_dates.txt}, \texttt{routes.txt}, \texttt{shapes.txt}, \texttt{stop\_times.txt}, \texttt{stops.txt}, \texttt{trips.txt}), por lo que el cambio no afectó al pipeline de carga ni al planificador.
+Durante el desarrollo se descargaron varias versiones del feed. En la primera, el operador figuraba como «Autobuses Toledo»; en versiones posteriores había cambiado de denominación a UNAUTO S.L. (Grupo Ruiz). El formato de los ficheros GTFS permaneció idéntico en todas las versiones, por lo que el cambio no afectó al pipeline de carga ni al planificador.
 
 \subsection{Vigencia del feed y decisión de fecha fija}
 \label{subsec:impl_otp_fecha}
