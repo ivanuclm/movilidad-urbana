@@ -13,7 +13,7 @@ Este capítulo detalla el proceso de construcción del simulador: las decisiones
 
 OSRM trabaja sobre un extracto de OpenStreetMap (OSM), un fichero \texttt{.osm.pbf} que contiene la geometría de calles, carreteras y caminos de un territorio junto con sus atributos de velocidad, sentido y accesibilidad por modo. Geofabrik \cite{GeofabrikDownloads} distribuye estos extractos por jerarquía geográfica, desde continentes hasta comunidades autónomas.
 
-Se utilizó el extracto de Castilla-La Mancha, que encaja con el ámbito del proyecto tanto por el Máster (UCLM) como por el caso de estudio elegido, Toledo, ciudad para la que se encontró el feed GTFS con mayor cobertura y calidad de la región. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal (sección~\ref{sec:impl_otp}), por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
+Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enmarca el proyecto, y dentro de ella Toledo como caso de estudio definitivo, tal como se detalla en la sección~\ref{sec:impl_otp}. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal, por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
 
 \begin{table}[htbp]
   \caption{Comparativa de extractos OSM disponibles en Geofabrik.}
@@ -30,8 +30,6 @@ Se utilizó el extracto de Castilla-La Mancha, que encaja con el ámbito del pro
     \bottomrule
   \end{tabular}
 \end{table}
-
-Durante la búsqueda de un feed GTFS adecuado para el transporte público, descrita en la sección~\ref{sec:impl_otp}, se trabajó temporalmente con el extracto de la Comunidad de Madrid para probar la integración con el feed de la EMT. Una vez seleccionado Toledo como caso de estudio definitivo se volvió al extracto de Castilla-La Mancha.
 
 \subsection{Evolución del despliegue}
 \label{subsec:impl_osrm_evolucion}
