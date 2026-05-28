@@ -1,7 +1,7 @@
 \chapter{Implementación y resultados}
 \label{ch:implementacion}
 
-Este capítulo detalla el proceso de construcción del simulador: las decisiones técnicas concretas tomadas en cada componente, los problemas encontrados y cómo se resolvieron, y los resultados obtenidos en el entrenamiento y evaluación de los modelos de elección modal.
+Este capítulo detalla el proceso de construcción del simulador: las decisiones técnicas concretas tomadas en cada componente, los problemas que surgieron durante el desarrollo así como la solución adoptada en cada caso, y los resultados del entrenamiento y evaluación de los modelos de elección modal.
 
 % -------------------------------------------------------
 \section{Infraestructura de enrutado viario: OSRM}
@@ -11,11 +11,11 @@ Este capítulo detalla el proceso de construcción del simulador: las decisiones
 \subsection{Origen y características del extracto OSM}
 \label{subsec:impl_osrm_origen}
 
-OSRM trabaja sobre un extracto de OpenStreetMap (OSM), un fichero \texttt{.osm.pbf} que contiene la geometría de calles, carreteras y caminos de un territorio junto con sus atributos de velocidad, sentido y accesibilidad por modo. Geofabrik \cite{GeofabrikDownloads} distribuye estos extractos por jerarquía geográfica, desde continentes hasta comunidades autónomas.
+Open Source Routing Machine (OSRM) trabaja sobre un extracto de OpenStreetMap (OSM), un fichero binario con extensión \texttt{.osm.pbf} que contiene la geometría de calles, carreteras y caminos de un territorio junto con sus atributos de velocidad, sentido y accesibilidad por modo. Geofabrik \cite{GeofabrikDownloads} distribuye estos extractos por jerarquía geográfica, desde continentes hasta comunidades autónomas.
 
-Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enmarca el proyecto, y dentro de ella Toledo como caso de estudio definitivo, tal como se detalla en la sección~\ref{sec:impl_otp}. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal, por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
+Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enmarca el proyecto, escogiendo Toledo como caso de estudio definitivo, tal como se detalla en la sección~\ref{sec:impl_otp}. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal, por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
 
-\begin{table}[htbp]
+\begin{table}[H]
   \caption{Comparativa de extractos OSM disponibles en Geofabrik.}
   \label{tab:osm_extractos}
   \centering
@@ -23,10 +23,11 @@ Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enm
     \toprule
     \textbf{Extracto} & \textbf{Tamaño (.osm.pbf)} & \textbf{Uso en el proyecto} \\
     \midrule
-    Castilla-La Mancha  & \textasciitilde{}98 MB    & Producción (OSRM y OTP) \\
-    Comunidad de Madrid & \textasciitilde{}330 MB   & Pruebas intermedias con feed GTFS EMT Madrid \\
-    España              & \textasciitilde{}1{,}3 GB & Evaluado, descartado \\
-    Europa              & \textasciitilde{}31{,}9 GB & Evaluado, descartado \\
+    Castilla-La Mancha  & \textasciitilde{}98 MB     & Producción (OSRM y OTP) \\
+    % Comunidad Valenciana & \textasciitilde{}131 MB     & Pruebas iniciales con feed EMT Valencia \\
+    Comunidad de Madrid & \textasciitilde{}79 MB     & Pruebas con feed EMT Madrid \\
+    España              & \textasciitilde{}1{,}3 GB  & Evaluado, descartado por tamaño \\
+    Europa              & \textasciitilde{}32{,}0 GB & Descartado por tamaño \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -34,32 +35,32 @@ Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enm
 \subsection{Evolución del despliegue}
 \label{subsec:impl_osrm_evolucion}
 
-La integración de OSRM evolucionó a través de tres fases sucesivas, cada una motivada por las limitaciones de la anterior.
+El despliegue de OSRM pasó por tres iteraciones antes de conseguir la configuración definitiva.
 
-\textbf{Fase 1: servidor de demostración oficial.} La primera implementación utilizó el servidor público de OSRM (\texttt{router.project-osrm.org}). La API acepta peticiones del tipo \texttt{/route/v1/\{profile\}/lon,lat;lon,lat} y es adecuada para verificar la conectividad y el formato de respuesta. El problema es que el servidor de demostración está capado: aunque la URL incluye el perfil (\texttt{car}, \texttt{bike}, \texttt{foot}), devuelve en la práctica el mismo resultado para los tres, correspondiente al enrutado por carretera. Dado que el objetivo central del simulador es la comparación multimodal con atributos diferenciados, esta limitación hacía inviable el servidor de demostración para el caso de uso real.
+\textbf{Fase 1: servidor de demostración oficial.} La primera implementación utilizó el servidor de demostración público del proyecto OSRM (\texttt{router.project-osrm.org}) \cite{OSRMDocs}. Este servidor ofrece acceso gratuito a la API de enrutado sin necesidad de infraestructura local y está pensado para pruebas rápidas de integración. El problema es que solo procesa el perfil de conducción independientemente del indicado en la URL \cite{OSRMIssue4034}; cambiar el perfil en la petición no tiene efecto, lo que hacía inviable la comparación multimodal que el simulador requiere.
 
-\textbf{Fase 2: instancias públicas FOSSGIS.} La alternativa encontrada fueron las instancias públicas mantenidas por FOSSGIS, que sí ofrecen perfiles diferenciados mediante rutas distintas (\texttt{routing.openstreetmap.de/routed-car}, \texttt{/routed-bike}, \texttt{/routed-foot}). Esta fase permitió verificar la viabilidad del enfoque multimodal antes de comprometerse con un despliegue local, y sirvió para definir el contrato de la API que el backend debía consumir. Los servicios públicos presentan, sin embargo, latencia variable, dependencia de disponibilidad externa y no permiten fijar la versión de los datos, lo que dificulta la reproducibilidad de los experimentos.
+\textbf{Fase 2: instancias públicas FOSSGIS.} Las instancias públicas mantenidas por FOSSGIS \cite{FOSSGISRouting} sí devuelven rutas diferenciadas por perfil mediante endpoints independientes (\texttt{/routed-car}, \texttt{/routed-bike}, \texttt{/routed-foot}), lo que permitió confirmar el funcionamiento multimodal y ajustar la integración del backend. El inconveniente es que estos servicios aplican limitaciones de uso (\textit{rate limiting}), presentan latencia variable y no permiten fijar la versión de los datos, lo que compromete la reproducibilidad.
 
-\textbf{Fase 3: instancia local con Docker.} La solución definitiva fue desplegar OSRM localmente mediante la imagen oficial \texttt{osrm/osrm-backend}, con un contenedor independiente por perfil. Esta decisión extiende al ámbito de los perfiles la misma lógica que motivó el uso de OSRM frente a APIs comerciales: reproducibilidad, control de versión y ausencia de límites de cuota. La imagen oficial incluye los tres perfiles estándar en \texttt{/opt/}: \texttt{car.lua}, \texttt{bicycle.lua} y \texttt{foot.lua}, lo que elimina la necesidad de obtenerlos o configurarlos externamente. Los tres contenedores se integran en el entorno Docker Compose descrito en la sección~\ref{sec:arch_infra}.
+\textbf{Fase 3: instancia local con Docker.} La solución definitiva fue desplegar OSRM localmente mediante la imagen oficial \texttt{osrm/osrm-backend} \cite{OSRMGitHub}, con un contenedor independiente por modo de transporte (conducción, bicicleta y a pie; el transporte público en autobús es responsabilidad de OpenTripPlanner). Esta arquitectura elimina la dependencia de servicios externos en tiempo de ejecución y garantiza reproducibilidad, control de versión y ausencia de límites de cuota. El procedimiento completo de despliegue se recoge en el anexo~\ref{anx:despliegue}.\todo{Redactar anexo de despliegue: docker compose up (despliegue en un clic) y, opcionalmente, comandos OSRM manuales paso a paso}
 
 \subsection{Pipeline de preprocesado por perfil}
 \label{subsec:impl_osrm_pipeline}
 
 Para que OSRM pueda calcular rutas, el extracto \texttt{.osm.pbf} debe transformarse en una estructura de datos interna optimizada para consultas de camino mínimo. Este preprocesado se ejecuta una sola vez por perfil y solo hay que repetirlo si se actualiza el extracto.
 
-Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos de vía son accesibles, a qué velocidad, con qué restricciones de giro y qué preferencias de trazado aplican. Los tres archivos de perfil estándar (\texttt{car.lua}, \texttt{bicycle.lua} y \texttt{foot.lua}) están incluidos en la imagen oficial de Docker \texttt{osrm/osrm-backend} en \texttt{/opt/}, por lo que no es necesario descargarlos ni configurarlos externamente. Todas las etapas del preprocesado se ejecutan con esa misma imagen, lo que fija la versión del software y garantiza la reproducibilidad del entorno.
+Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos de vía son accesibles, a qué velocidad y con qué restricciones de giro. Los tres archivos de perfil estándar (\texttt{car.lua}, \texttt{bicycle.lua} y \texttt{foot.lua}) están incluidos en la imagen oficial de Docker \texttt{osrm/osrm-backend} en \texttt{/opt/}, por lo que no es necesario descargarlos ni configurarlos externamente. Todas las etapas del preprocesado se ejecutan con esa misma imagen, lo que garantiza que el preprocesado sea reproducible en cualquier entorno de ejecución.
 
 \begin{enumerate}
   \item \textbf{Extracción} (\texttt{osrm-extract}): lee el \texttt{.osm.pbf} y construye el grafo viario interno aplicando las reglas del perfil Lua indicado: qué vías son transitables, a qué velocidad y con qué restricciones. El resultado es el fichero \texttt{.osrm} junto con varios auxiliares de índice.
 
-  \item \textbf{Particionado} (\texttt{osrm-partition}): divide el grafo en celdas jerárquicas para el algoritmo Multi-Level Dijkstra (MLD). Esta partición es la que permite calcular rutas de larga distancia en milisegundos, al limitar la búsqueda a fronteras entre celdas en lugar de explorar el grafo completo.
+  \item \textbf{Particionado} (\texttt{osrm-partition}): divide el grafo en celdas jerárquicas para el algoritmo Multi-Level Dijkstra (MLD) \cite{Geisberger2008CH}. Esta partición es la que permite calcular rutas de larga distancia en milisegundos, al limitar la búsqueda a fronteras entre celdas en lugar de explorar el grafo completo.
 
-  \item \textbf{Customización} (\texttt{osrm-customize}): asigna los pesos finales de cada arista sobre la estructura de celdas anterior, produciendo el grafo listo para servir peticiones de ruta.
+  \item \textbf{Personalización} (\texttt{osrm-customize}): asigna los pesos finales de cada arista sobre la estructura de celdas anterior, produciendo el grafo listo para servir peticiones de ruta.
 \end{enumerate}
 
-El resultado de las tres etapas son los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}) para que los tres conjuntos de artefactos coexistan sin interferencia. Estos artefactos no se versionan en el repositorio por su tamaño; el procedimiento completo se recoge en el anexo~\ref{anx:despliegue}.
+Las tres etapas generan los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}). \todo{Decidir si versionar con Git LFS; actualmente excluidos del repositorio por tamaño} Estos archivos no se versionan en el repositorio por su tamaño; el procedimiento completo se recoge en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con los comandos osrm-extract, osrm-partition, osrm-customize por perfil}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
   \missingfigure{Diagrama del pipeline de preprocesado OSRM: \texttt{.osm.pbf} $\to$ \texttt{osrm-extract -p \{perfil\}.lua} $\to$ \texttt{osrm-partition} $\to$ \texttt{osrm-customize} $\to$ \texttt{osrm-routed -{}-algorithm mld}. Indicar que el proceso se repite de forma independiente para los tres perfiles (car, bike, foot), generando tres directorios de artefactos separados.}
   \caption{Pipeline de preprocesado OSRM por perfil de transporte.}
@@ -112,7 +113,7 @@ La hora de consulta se fijó a las 12:00 por dos razones: evitar itinerarios con
 
 El grafo multimodal de OTP se genera en modo de construcción (\texttt{--build --save}) sobre un directorio que contiene el extracto OSM de Castilla-La Mancha y el fichero ZIP del feed GTFS de Toledo. OTP 2.5.0 combina ambas fuentes en un único grafo serializado (\texttt{graph.obj}) que integra la red viaria para los tramos de acceso a pie y la red de servicio programado del autobús para los tramos en vehículo. El proceso tarda aproximadamente dos minutos en la máquina de desarrollo y solo debe ejecutarse una vez por versión del feed.
 
-Al igual que los grafos OSRM, el \texttt{graph.obj} no se versiona en el repositorio por su tamaño y debe generarse o descargarse antes del primer despliegue. El procedimiento completo se documenta en el anexo~\ref{anx:despliegue}. Una vez disponible el grafo, OTP se lanza en modo de explotación (\texttt{--load --serve}) y queda accesible en el puerto 8080, exponiendo la API REST de planificación \cite{OTPRouteRequest}.
+Al igual que los grafos OSRM, el \texttt{graph.obj} no se versiona en el repositorio por su tamaño y debe generarse o descargarse antes del primer despliegue. El procedimiento completo se documenta en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con construcción del grafo OTP: comando --build --save y requisitos previos (OSM + GTFS)} Una vez disponible el grafo, OTP se lanza en modo de explotación (\texttt{--load --serve}) y queda accesible en el puerto 8080, exponiendo la API REST de planificación \cite{OTPRouteRequest}.
 
 \subsection{Integración de itinerarios en el backend}
 \label{subsec:impl_otp_integracion}
