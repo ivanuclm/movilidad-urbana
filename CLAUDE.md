@@ -8,8 +8,10 @@ Memoria en LaTeX.
 
 Estado actual de la memoria: ch1 tiene objetivos pero contexto/motivación y
 alcance vacíos. ch2 prácticamente completo, solo falta subsección del dataset
-LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (diagrama pipeline PDF).
-ch5 completo (primera versión completa, 6 mayo 2026). ch6 vacío.
+LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (diagrama pipeline PDF,
+TODO para refactorizar LPMC_MODEL_VARIANT como parámetro API). ch5: §5.1 OSRM
+completamente revisado y pulido (29 mayo 2026); §5.2–§5.6 en segunda versión
+pendientes de revisión. ch6 vacío.
 Estado detallado: ESTADO_MEMORIA.md
 
 ---
@@ -94,7 +96,11 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
 - Las duraciones de OSRM/OTP se convierten de segundos a horas en el pipeline
   de inferencia para coincidir con las unidades del dataset LPMC.
 - Colores de línea GTFS deterministas por route_id para consistencia visual
-- Segmentos OTP solo visibles cuando el modo activo es transporte público
+- Segmentos OTP solo visibles cuando el modo activo incluye transporte público
+- Botones de modo en frontend no son mutex: estado selectedModes: Set<UiMode>.
+  Cada botón hace toggle independiente. toggleMode() en App.tsx.
+  MapView recibe selectedModes y renderiza una Polyline por perfil activo.
+- vite.config.ts tiene usePolling: true para HMR en Docker sobre Windows
 - Overwrite de variables PT (dur_pt_total, dur_pt_access, dur_pt_bus,
   dur_pt_rail, pt_n_interchanges) a valor de penalización cuando OTP no
   devuelve itinerario real, para evitar que el modelo elija PT en trayectos
@@ -140,6 +146,7 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
 - Breiman2001, Friedman2001, Chen2016XGBoost, Goodfellow2016: modelos ML
 - ScrumGuide2020: Guía Scrum 2020
 - OSRMDocs, OTPDocs, GTFSReference: enrutado y datos abiertos
+- GooglePolyline: Encoded Polyline Algorithm Format (Google LLC) — para §5.4
 
 ---
 

@@ -408,7 +408,7 @@ function App() {
     lon: -4.00525,
   });
 
-  const [selectedMode, setSelectedMode] = useState<UiMode>("driving");
+  const [selectedModes, setSelectedModes] = useState<Set<UiMode>>(new Set(["driving"]));
   const [basemap, setBasemap] = useState<BasemapMode>("color");
   const [transitItineraryIndex, setTransitItineraryIndex] = useState(0);
 
@@ -433,6 +433,18 @@ function App() {
     cost_transit: 1.5,
     cost_driving_total: 3,
   });
+
+  function toggleMode(mode: UiMode) {
+    setSelectedModes((prev) => {
+      const next = new Set(prev);
+      if (next.has(mode)) {
+        next.delete(mode);
+      } else {
+        next.add(mode);
+      }
+      return next;
+    });
+  }
 
   // ---------------- OSRM ----------------
 
@@ -466,12 +478,12 @@ function App() {
 
   const isCalculating = osrmMutation.isPending || transitMutation.isPending;
 
-  const selectedRoute =
-    selectedMode !== "transit"
-      ? osrmMutation.data?.results.find(
-          (r) => r.profile === selectedMode
-        ) ?? null
-      : null;
+  const primaryOsrmProfile = (["driving", "cycling", "foot"] as Profile[]).find(
+    (p) => selectedModes.has(p)
+  );
+  const selectedRoute = primaryOsrmProfile
+    ? osrmMutation.data?.results.find((r) => r.profile === primaryOsrmProfile) ?? null
+    : null;
 
   const transitResult = transitMutation.data ?? null;
   const totalItineraries = transitResult?.total_itineraries ?? 0;
@@ -486,7 +498,7 @@ function App() {
     : null;
 
   const displayedGeometry: Point[] =
-    selectedMode === "transit"
+    selectedModes.has("transit")
       ? transitMutation.data?.geometry ?? []
       : selectedRoute?.geometry ?? [];
 
@@ -579,7 +591,8 @@ function App() {
             setOrigin={setOrigin}
             setDestination={setDestination}
             routeGeometry={displayedGeometry}
-            mode={selectedMode}
+            selectedModes={selectedModes}
+            osrmResults={osrmMutation.data?.results}
             basemap={basemap}
             gtfsStops={
               showGtfsStops && gtfsStopsQuery.data ? gtfsStopsQuery.data : []
@@ -592,7 +605,7 @@ function App() {
             }}
             // solo mostramos segmentos OTP cuando el modo es "transit"
             transitSegments={
-              selectedMode === "transit" ? transitResult?.segments ?? [] : []
+              selectedModes.has("transit") ? transitResult?.segments ?? [] : []
             }
           />
         </section>
@@ -701,7 +714,7 @@ function App() {
                 type="button"
                 className="mode-button"
                 style={
-                  selectedMode === p
+                  selectedModes.has(p)
                     ? {
                         background: MODE_COLORS[p],
                         borderColor: MODE_COLORS[p],
@@ -709,7 +722,7 @@ function App() {
                       }
                     : undefined
                 }
-                onClick={() => setSelectedMode(p)}
+                onClick={() => toggleMode(p)}
                 disabled={isCalculating}
               >
                 {PROFILE_LABELS[p]}
@@ -720,7 +733,7 @@ function App() {
               type="button"
               className="mode-button"
               style={
-                selectedMode === "transit"
+                selectedModes.has("transit")
                   ? {
                       background: MODE_COLORS.transit,
                       borderColor: MODE_COLORS.transit,
@@ -728,7 +741,7 @@ function App() {
                     }
                   : undefined
               }
-              onClick={() => setSelectedMode("transit")}
+              onClick={() => toggleMode("transit")}
               disabled={isCalculating || !transitMutation.data}
             >
               Transporte público
@@ -773,7 +786,7 @@ function App() {
                 <tr
                   key={r.profile}
                   className={
-                    selectedMode === r.profile ? "row-active" : undefined
+                    selectedModes.has(r.profile) ? "row-active" : undefined
                   }
                 >
                   <td>{PROFILE_LABELS[r.profile]}</td>
@@ -785,7 +798,7 @@ function App() {
               {transitMutation.data && (
                 <tr
                   className={
-                    selectedMode === "transit" ? "row-active" : undefined
+                    selectedModes.has("transit") ? "row-active" : undefined
                   }
                 >
                   <td>
@@ -867,7 +880,7 @@ function App() {
             </div>
           )}
 
-          {selectedMode === "transit" && transitResult && (
+          {selectedModes.has("transit") && transitResult && (
             <div
               style={{
                 marginTop: "0.75rem",

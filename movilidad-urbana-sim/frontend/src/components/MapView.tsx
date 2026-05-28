@@ -86,13 +86,24 @@ type TransitSegment = {
   geometry: Point[];
 };
 
+interface OsrmResult {
+  profile: string;
+  geometry: Point[];
+}
+
+const OSRM_PROFILE_STYLES: Record<string, { color: string; weight: number; dashArray: string }> = {
+  driving: { color: "#2563eb", weight: 5, dashArray: "" },
+  cycling: { color: "#16a34a", weight: 4, dashArray: "" },
+  foot:    { color: "#4b5563", weight: 3, dashArray: "6 6" },
+};
+
 interface MapViewProps {
   origin: Point;
   destination: Point;
   setOrigin: (p: Point) => void;
   setDestination: (p: Point) => void;
   routeGeometry: Point[];
-  mode: UiMode;
+  selectedModes: Set<UiMode>;
   basemap: BasemapMode;
   gtfsStops?: GtfsStop[];
   transitShape?: Point[];
@@ -100,6 +111,7 @@ interface MapViewProps {
   transitRouteColor?: string;
   onSelectTransitRoute?: (routeId: string) => void;
   transitSegments?: TransitSegment[];
+  osrmResults?: OsrmResult[];
 }
 
 function ClickHandler({
@@ -132,7 +144,7 @@ export function MapView({
   setOrigin,
   setDestination,
   routeGeometry,
-  mode,
+  selectedModes,
   basemap,
   gtfsStops,
   transitShape,
@@ -140,6 +152,7 @@ export function MapView({
   transitRouteColor,
   onSelectTransitRoute,
   transitSegments,
+  osrmResults,
 }: MapViewProps) {
   const basemapConfig: Record<
     BasemapMode,
@@ -173,7 +186,7 @@ export function MapView({
   );
 
   const otpTransitPolylines =
-    mode === "transit" && transitSegments
+    selectedModes.has("transit") && transitSegments
       ? transitSegments.map((seg) => ({
           mode: seg.mode,
           positions: seg.geometry.map(
@@ -199,30 +212,6 @@ export function MapView({
   //   };
   // }
 
-    let mainRoutePathOptions: L.PathOptions | undefined = undefined;
-
-    if (mode === "driving") {
-      mainRoutePathOptions = {
-        color: "#2563eb",
-        weight: 5,
-        // importante: resetear dashArray para que no herede el de "A pie"
-        dashArray: "",
-      };
-    } else if (mode === "cycling") {
-      mainRoutePathOptions = {
-        color: "#16a34a",
-        weight: 4,
-        dashArray: "",
-      };
-    } else if (mode === "foot") {
-      mainRoutePathOptions = {
-        color: "#4b5563",
-        weight: 3,
-        dashArray: "6 6",
-      };
-    }
-
-
   return (
     <MapContainer center={defaultCenter} zoom={13} className="map-container">
       <TileLayer
@@ -239,18 +228,24 @@ export function MapView({
         icon={destinationIcon}
       />
 
-      {/* Ruta principal:
-          - Para coche/bici/a pie: línea coloreada según modo
-          - Para tránsito: la dibujamos solo con los segmentos OTP,
-            así que NO pintamos la general aquí */}
-      {osrmPolylinePositions.length > 0 &&
-        mode !== "transit" &&
-        mainRoutePathOptions && (
+      {(osrmResults ?? []).map((result) => {
+        const styles = OSRM_PROFILE_STYLES[result.profile];
+        if (!styles || result.geometry.length === 0) return null;
+        if (!selectedModes.has(result.profile as UiMode)) return null;
+        const positions = result.geometry.map((p) => [p.lat, p.lon] as [number, number]);
+        return (
           <Polyline
-            positions={osrmPolylinePositions}
-            pathOptions={mainRoutePathOptions}
+            key={result.profile}
+            positions={positions}
+            pathOptions={{
+              color: styles.color,
+              weight: styles.weight,
+              dashArray: styles.dashArray,
+              opacity: 1,
+            }}
           />
-        )}
+        );
+      })}
 
       {/* Ruta GTFS seleccionada (desde routes.txt) */}
       {transitPolylinePositions.length > 0 && (

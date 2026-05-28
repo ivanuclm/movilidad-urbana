@@ -43,6 +43,7 @@ El despliegue de OSRM pasó por tres iteraciones antes de conseguir la configura
 
 \textbf{Fase 3: instancia local con Docker.} La solución definitiva fue desplegar OSRM localmente mediante la imagen oficial \texttt{osrm/osrm-backend} \cite{OSRMGitHub}, con un contenedor independiente por modo de transporte (conducción, bicicleta y a pie; el transporte público en autobús es responsabilidad de OpenTripPlanner). Esta arquitectura elimina la dependencia de servicios externos en tiempo de ejecución y garantiza reproducibilidad, control de versión y ausencia de límites de cuota. El procedimiento completo de despliegue se recoge en el anexo~\ref{anx:despliegue}.\todo{Redactar anexo de despliegue: docker compose up (despliegue en un clic) y, opcionalmente, comandos OSRM manuales paso a paso}
 
+\newpage
 \subsection{Pipeline de preprocesado por perfil}
 \label{subsec:impl_osrm_pipeline}
 
@@ -52,17 +53,19 @@ Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos 
 
 \begin{enumerate}
   \item \textbf{Extracción} (\texttt{osrm-extract}): lee el \texttt{.osm.pbf} y construye el grafo viario interno aplicando las reglas del perfil Lua indicado: qué vías son transitables, a qué velocidad y con qué restricciones. El resultado es el fichero \texttt{.osrm} junto con varios auxiliares de índice.
-
   \item \textbf{Particionado} (\texttt{osrm-partition}): divide el grafo en celdas jerárquicas para el algoritmo Multi-Level Dijkstra (MLD) \cite{Geisberger2008CH}. Esta partición es la que permite calcular rutas de larga distancia en milisegundos, al limitar la búsqueda a fronteras entre celdas en lugar de explorar el grafo completo.
-
   \item \textbf{Personalización} (\texttt{osrm-customize}): asigna los pesos finales de cada arista sobre la estructura de celdas anterior, produciendo el grafo listo para servir peticiones de ruta.
 \end{enumerate}
 
 Las tres etapas generan los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}). \todo{Decidir si versionar con Git LFS; actualmente excluidos del repositorio por tamaño} Estos archivos no se versionan en el repositorio por su tamaño; el procedimiento completo se recoge en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con los comandos osrm-extract, osrm-partition, osrm-customize por perfil}
 
-\begin{figure}[H]
+El preprocesado completo de los tres perfiles sobre el extracto de Castilla-La Mancha tarda aproximadamente 97 segundos en la máquina de desarrollo. Los artefactos generados ocupan en total unos 2,1~GB: el perfil de conducción produce 291~MB porque solo incorpora la red viaria accesible al tráfico rodado, mientras que los perfiles de bicicleta y peatonal alcanzan los 911~MB cada uno al incluir además senderos, caminos rurales y zonas de acceso restringido al tráfico.
+
+\begin{figure}[htbp]
   \centering
-  \missingfigure{Diagrama del pipeline de preprocesado OSRM: \texttt{.osm.pbf} $\to$ \texttt{osrm-extract -p \{perfil\}.lua} $\to$ \texttt{osrm-partition} $\to$ \texttt{osrm-customize} $\to$ \texttt{osrm-routed -{}-algorithm mld}. Indicar que el proceso se repite de forma independiente para los tres perfiles (car, bike, foot), generando tres directorios de artefactos separados.}
+  % \missingfigure{Diagrama del pipeline de preprocesado OSRM: \texttt{.osm.pbf} $\to$ \texttt{osrm-extract -p \{perfil\}.lua} $\to$ \texttt{osrm-partition} $\to$ \texttt{osrm-customize} $\to$ \texttt{osrm-routed -{}-algorithm mld}. Indicar que el proceso se repite de forma independiente para los tres perfiles (car, bike, foot), generando tres directorios de artefactos separados.}
+  \includegraphics[width=1.0\textwidth]{figs/Pipeline_Preprocesado_OSRM.pdf}
+
   \caption{Pipeline de preprocesado OSRM por perfil de transporte.}
   \label{fig:osrm_pipeline}
 \end{figure}
@@ -70,14 +73,36 @@ Las tres etapas generan los ficheros \texttt{clm.osrm} y sus auxiliares, almacen
 \subsection{Despliegue y verificación}
 \label{subsec:impl_osrm_despliegue}
 
-El servidor de enrutado se lanza con \texttt{osrm-routed --algorithm mld /data/clm.osrm}. Los tres contenedores exponen el puerto 5000 internamente, mapeados en el anfitrión a los puertos 5000, 5001 y 5002 para coche, bicicleta y peatón respectivamente. En el entorno Docker Compose del repositorio los contenedores se referencian por nombre de servicio interno (\texttt{osrm-car:5000}, \texttt{osrm-bike:5000}, \texttt{osrm-foot:5000}), por lo que el backend no depende del puerto del anfitrión. Las URLs base de cada instancia se inyectan mediante variables de entorno (\texttt{OSRM\_DRIVING\_URL}, \texttt{OSRM\_CYCLING\_URL}, \texttt{OSRM\_FOOT\_URL}), lo que permite cambiar los endpoints sin modificar código.
+Cada uno de los tres contenedores OSRM ejecuta el servidor de enrutado sobre su grafo preprocesado con el algoritmo MLD (Figura~\ref{fig:osrm_pipeline}):
+\begin{lstlisting}[language=bash]
+osrm-routed --algorithm mld /data/clm.osrm
+\end{lstlisting}
 
-La verificación del servicio consiste en una petición directa al endpoint de ruta con un par de coordenadas conocidas dentro del área de Toledo. Una respuesta válida incluye la distancia en metros, la duración en segundos y la geometría de la ruta codificada en formato polyline. Si el preprocesado se realizó con un perfil incorrecto o el grafo está incompleto, OSRM devuelve código de estado \texttt{NoRoute} o una ruta degradada, detectable de inmediato al comparar visualmente los tres trazados.
+Los tres contenedores comparten imagen y comando de arranque. Cada uno monta el directorio de artefactos de su perfil (\texttt{osrm-clm/car}, \texttt{osrm-clm/bike}, \texttt{osrm-clm/foot}). El backend los resuelve por nombre de servicio dentro de la red Docker Compose, siempre en el puerto 5000. Los puertos 5000, 5001 y 5002 del anfitrión permiten verificar cada instancia desde el terminal.
 
-\begin{figure}[htbp]
+Una respuesta válida devuelve \texttt{"code": "Ok"} junto con la distancia en metros, la duración en segundos y la geometría en formato polilínea, una cadena de texto con la secuencia de coordenadas de la ruta, que el backend decodifica antes de enviarla al frontend. Si el grafo está incompleto o el perfil es incorrecto, OSRM devuelve \texttt{"code": "NoRoute"} o una ruta degradada, detectable al comparar visualmente los tres trazados en la interfaz.
+
+\begin{code}[H]
+\begin{lstlisting}[language=bash]
+# osrm-car  (conduccion, localhost:5000)
+curl "http://localhost:5000/route/v1/driving/-4.0356,39.8750;-4.0023,39.8602?overview=full"
+
+# osrm-bike (bicicleta,  localhost:5001)
+curl "http://localhost:5001/route/v1/cycling/-4.0356,39.8750;-4.0023,39.8602?overview=full"
+
+# osrm-foot (peatonal,   localhost:5002)
+curl "http://localhost:5002/route/v1/foot/-4.0356,39.8750;-4.0023,39.8602?overview=full"
+\end{lstlisting}
+\caption{Verificación de las tres instancias OSRM desde el terminal del anfitrión. El parámetro \texttt{overview=full} fuerza la devolución de la geometría completa de la ruta; sin él, OSRM devuelve una versión simplificada con menos puntos.}
+\label{cod:osrm_verificacion}
+\end{code}
+
+\begin{figure}[H]
   \centering
-  \missingfigure{Captura de la interfaz mostrando las tres rutas OSRM simultáneas sobre el mapa de Toledo: azul (conducción), verde (bicicleta), gris (a pie), para el mismo par origen-destino. Los tres trazados reflejan las restricciones específicas de cada perfil: la ruta en coche sigue viarios principales, la de bicicleta prioriza carriles bici y calles tranquilas, y la peatonal puede acceder a zonas restringidas al tráfico.}
-  \caption{Rutas OSRM para los tres perfiles de transporte sobre Toledo.}
+  % \missingfigure{Captura de la interfaz mostrando las tres rutas OSRM simultáneas sobre el mapa de Toledo: azul (conducción), verde (bicicleta), gris (a pie), para el mismo par origen-destino. Los tres trazados reflejan las restricciones específicas de cada perfil: la ruta en coche sigue viarios principales, la de bicicleta prioriza carriles bici y calles tranquilas, y la peatonal puede acceder a zonas restringidas al tráfico.}
+  \includegraphics[width=1.0\textwidth]{figs/Rutas2_crop.jpeg}
+
+  \caption{Rutas OSRM para los tres perfiles de transporte sobre Toledo. En azul, la ruta de conducción sigue las calles principales; en verde, la ruta de bicicleta prioriza carriles bici y calles tranquilas; en gris, la ruta peatonal puede acceder a zonas restringidas al tráfico rodado.}
   \label{fig:osrm_rutas}
 \end{figure}
 

@@ -1,4 +1,4 @@
-# Estado de la memoria LaTeX — actualizado 19 mayo 2026 (rev4)
+# Estado de la memoria LaTeX — actualizado 29 mayo 2026 (rev5)
 
 ## ch1 — Introducción
 - Objetivo general: OK
@@ -42,60 +42,97 @@
   - Unidades duración corregidas a horas (h) en la tabla
   - Diagrama muestra asyncio.gather, build_route_features (s→h), scaler, 3 modelos
 - Decisiones técnicas (lazy loading actualizado para 3 modelos): OK
+- TODO añadido: refactorizar LPMC_MODEL_VARIANT como parámetro POST en lugar de variable de entorno
 - Pendiente: generar figuras arch_general, arch_docker (pipeline_inferencia: HECHO)
 
 ## ch5 — Implementación y resultados
-- Segunda versión completa (19 mayo 2026), estructura Opción A
-- Orden secciones: OSRM → OTP → GTFS → Backend → Frontend → ML (skeleton)
-- Tabla 4.3 (tab:lpmc_features) MOVIDA de ch4 a ch5 §5.6.1; ch4 actualizado con referencia conceptual (3 fuentes)
-- Secciones escritas y refinadas:
-  - §5.1 OSRM: tabla comparativa extractos OSM, evolución 3 fases, pipeline, despliegue+verificación
-  - §5.2 OTP: selección GTFS (Valencia→Madrid→Toledo/UNAUTO), NAP, UNAUTO, vigencia feed, fecha fija, grafo, integración legs, penalización itinerario walk-only
-  - §5.3 GTFS: capa estática independiente de OTP, 4 endpoints, fix paginación Madrid, coloración hash
-  - §5.4 Backend: estructura modular, asyncio.gather OSRM, router OTP, penalización PT (sec propia), entorno Docker
-  - §5.5 Frontend: React/Vite/TS, marcadores CSS, polilíneas OSRM, legs OTP (walk/bus diferenciados), 4 basemaps, TanStack Query, 3 perfiles predefinidos
-  - §5.6 ML: skeleton con tabla dataset LPMC + tabla variables entrada (tab:lpmc_features) + comentarios TODO + tablas resultados CV y test
-- \missingfigure{} colocados: osrm_pipeline, osrm_rutas, otp_itinerario, gtfs_paradas, fastapi_docs, app_general, panel_comparacion (7 figuras pendientes de captura)
-- Sección ML interior (preprocesado, hiperparámetros, entrenamiento): placeholders con comentarios detallados para redactar con el tutor
-- Citas en uso: GeofabrikDownloads, NAPHome, NAPEMTValencia, NAPEMTMadrid, NAPToledoUrbano, OTPRouteRequest, Hillel2018LPMC, CSLPMC2019, MartinBaos2023Thesis, MartinBaos2023TRC
-- Pendiente: capturas de pantalla de la app para reemplazar \missingfigure{}, redacción bloque ML con tutor
+- Segunda versión base (19 mayo 2026); §5.1 completamente revisado y pulido (29 mayo 2026)
+- Orden secciones: OSRM → OTP → GTFS → Backend → Frontend → ML
+
+### §5.1 OSRM — COMPLETO (revisado 29 mayo 2026)
+- §5.1.1: Contexto y selección de OSRM (demoserver solo coche → local)
+- §5.1.2: Evolución 3 fases (prototipo remoto, OSRM local, multi-perfil)
+- §5.1.3: Preprocesado con datos reales:
+  - Tiempos: car ~21s, bike ~35s, foot ~41s, total ~97s
+  - Tamaños: car 291MB, bike 911MB, foot 911MB, total 2.1GB
+  - Figura Pipeline_Preprocesado_OSRM.pdf disponible en latex/figs/
+  - Referenciada como \label{fig:osrm_pipeline}
+- §5.1.4: Despliegue y verificación (NUEVO):
+  - Explicación contenedores Docker: puerto interno 5000 por nombre, host 5000/5001/5002
+  - Bloque curl de verificación de las 3 instancias (\label{cod:osrm_verificacion})
+  - Intro polilínea: "formato polilínea, una cadena de texto con la secuencia de coordenadas"
+  - Parámetro overview=full mencionado y explicado en caption
+  - Figura \label{fig:osrm_rutas}: captura tomada (3 rutas simultáneas), PENDIENTE insertar en LaTeX
+
+### §5.2 OTP — pendiente de revisión (texto base de segunda versión)
+  - Selección GTFS (Valencia→Madrid→Toledo/UNAUTO), NAP, UNAUTO, vigencia feed, fecha fija
+  - Grafo OTP, integración legs, penalización itinerario walk-only
+
+### §5.3 GTFS — pendiente de revisión (texto base)
+  - Capa estática independiente de OTP, 4 endpoints, fix paginación Madrid, coloración hash
+
+### §5.4 Backend — pendiente de revisión (texto base)
+  - Estructura modular, asyncio.gather OSRM, router OTP, penalización PT, entorno Docker
+  - PENDIENTE: explicación técnica Google Encoded Polyline (con \cite{GooglePolyline}) aquí
+
+### §5.5 Frontend — pendiente de revisión (texto base)
+  - React/Vite/TS, marcadores CSS, polilíneas OSRM, legs OTP, 4 basemaps, TanStack Query
+  - NOTA: botones de modo ahora toggle (Set<UiMode>), no mutex — actualizar descripción
+
+### §5.6 ML — skeleton
+  - Tabla dataset LPMC + tabla variables entrada (tab:lpmc_features) + TODOs
+  - Tablas resultados CV y test (placeholders)
+  - Bloque preprocesado, hiperparámetros, entrenamiento: pendiente con tutor
+
+## \missingfigure{} pendientes de reemplazar (6 restantes)
+- fig:osrm_rutas: captura disponible (3 rutas), PENDIENTE insertar en .tex
+- fig:otp_itinerario: pendiente captura
+- fig:gtfs_paradas: pendiente captura
+- fig:fastapi_docs: pendiente captura
+- fig:app_general: pendiente captura
+- fig:panel_comparacion: pendiente captura
+
+## Bibliografía ref.bib — entradas añadidas en esta sesión
+- @misc{GooglePolyline}: Encoded Polyline Algorithm Format (Google LLC) — para usar en §5.4
 
 ## Código ML — comentado (19 mayo 2026)
-- lpmc/01_explore.py: docstring de módulo añadido (entradas, salidas, propósito)
-- lpmc/02_preprocess.py: docstring + comentarios en transformaciones (purpose, fueltype, mode_map, cols_to_drop, split temporal)
-- lpmc/03_train_xgb.py: docstring + comentarios en SCALED_FEATURES, load_best_params (HyperOpt), gmpca_from_proba, scale, GroupKFold rationale, FAST_N_ESTIMATORS, modelo final
-- lpmc/04_train_rf.py: docstring + comentarios en DEFAULT_PARAMS (max_depth=None, min_samples_*), GroupKFold, serialización JSON con None
-- lpmc/05_train_dnn.py: docstring + comentarios en build_model (BN después de Linear, no antes), train_model (Adam lr/wd, label_smoothing, clip_grad_norm, ReduceLROnPlateau patience=5, early stopping patience=10, best_state clone), predict_proba_torch (eval mode, no_grad), split 10% validación modelo final
-- lpmc/06_compare_models.py: docstring completo con prerequisites y workflow; funciones documentadas
-- backend/app/services/lpmc_inference.py: docstring de módulo (pipeline, lazy loading, unidades s→h); comentarios en TorchModalWrapper (lazy load, Windows/Linux path normalization), _project_root (depth explicado), _build_route_features (s2h = 1/3600, inter_walk, inter_waiting), _build_feature_frame (household_id legacy neutralizado a 0.0, one-hot encoding), _predict (escalado parcial solo SCALED_FEATURES), run_lpmc_inference (asyncio.gather 4 tareas concurrentes), run_lpmc_compare (FileNotFoundError per variant)
+- lpmc/01_explore.py: docstring de módulo
+- lpmc/02_preprocess.py: docstring + comentarios transformaciones
+- lpmc/03_train_xgb.py: docstring + comentarios SCALED_FEATURES, GroupKFold, GMPCA
+- lpmc/04_train_rf.py: docstring + comentarios DEFAULT_PARAMS, GroupKFold
+- lpmc/05_train_dnn.py: docstring + comentarios arquitectura, train_model, predict_proba_torch
+- lpmc/06_compare_models.py: docstring completo
+- backend/app/services/lpmc_inference.py: docstring módulo + comentarios en todas las funciones
 
 ## ch6 — Conclusiones y trabajo futuro
 - TODO VACÍO
 
 ## Anexos
-- Estructura definida: manual despliegue, endpoints API,
-  hiperparámetros, evidencias sprints
+- Estructura definida: manual despliegue, endpoints API, hiperparámetros, evidencias sprints
 - TODO VACÍO
 
 ## Ficheros fuera de TFM.tex
-- ch6_validacion_resultados_OLD.tex: estructura de validación
-  (métricas modelo, validación funcional, E2E). No integrado.
-  Pendiente decidir si va como capítulo propio o absorbido en ch5.
+- ch6_validacion_resultados_OLD.tex: estructura de validación (métricas, funcional, E2E).
+  No integrado. Pendiente decidir si va como capítulo propio o absorbido en ch5/ch6.
 
 ## Figuras disponibles
 - scrum_tfm_cycle.png: referenciada en ch3, OK
 - sprints_timeline.png: referenciada en ch3, OK
 - mnl_sigmoid.png: referenciada en ch2, OK
+- Pipeline_Preprocesado_OSRM.pdf: referenciada en ch5 §5.1.3 como fig:osrm_pipeline, OK
 - ch2_pipeline2.png: disponible, comentada (anotada para ch1)
 
 ## Próximo trabajo previsto
-1. Subsección dataset LPMC en ch2 (puede solapar con lo ya escrito en ch5)
-2. ch1 contexto/motivación y alcance
-3. ch6 conclusiones y trabajo futuro
-4. Decidir e integrar validación (ch6_validacion_resultados_OLD.tex)
-5. Generar figuras: arch_general, arch_docker (pipeline_inferencia: HECHO)
-6. Capturas de pantalla de la app para reemplazar los 7 \missingfigure{} del ch5
-7. Redactar §5.6.2 preprocesado, §5.6.3 hiperparámetros, §5.6.4 entrenamiento (con tutor)
+1. §5.2 OTP: revisar y pulir sección a sección (próxima sesión)
+2. §5.3 GTFS: revisar y pulir
+3. §5.4 Backend: revisar + añadir explicación Google Encoded Polyline
+4. §5.5 Frontend: revisar + actualizar descripción de botones toggle
+5. Insertar captura fig:osrm_rutas para reemplazar \missingfigure{}
+6. §5.6 ML: redactar con tutor
+7. Subsección dataset LPMC en ch2
+8. ch1 contexto/motivación y alcance
+9. ch6 conclusiones y trabajo futuro
+10. Generar figuras: arch_general, arch_docker
 
 ## Límites formales
 - Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)

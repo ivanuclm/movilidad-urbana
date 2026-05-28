@@ -129,7 +129,7 @@ Las variables de entrada al modelo proceden de tres fuentes diferenciadas: los t
 
 Las variables continuas que presentaban distribución asimétrica en el conjunto de entrenamiento se normalizan con un escalado parcial aplicado solo a las columnas correspondientes, preservando las variables binarias y de conteo sin transformar. El modelo devuelve un vector de cuatro probabilidades correspondientes a los modos \textit{walk}, \textit{cycle}, \textit{pt} y \textit{drive}; el modo predicho es el de mayor probabilidad.
 
-El modelo activo para \texttt{/predict} se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto). Ninguno de los tres modelos incluye \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; solo se usó durante el entrenamiento como criterio de agrupación en la validación cruzada.
+El modelo activo para \texttt{/predict} se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto). \todo{Refactorizar: el modelo a usar debería ser un parámetro de la petición POST /api/lpmc/predict (ej. \texttt{"model": "xgb"}), con XGBoost como valor por defecto. La variable de entorno es un parche de desarrollo que no debería llegar a producción.} Ninguno de los tres modelos incluye \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; solo se usó durante el entrenamiento como criterio de agrupación en la validación cruzada.
 
 % Decisiones técnicas movidas al capítulo 5 (implementación)
 
