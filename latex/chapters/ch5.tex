@@ -83,7 +83,7 @@ osrm-routed --algorithm mld /data/clm.osrm
 
 Los tres contenedores comparten imagen y comando de arranque. Cada uno monta el directorio de artefactos de su perfil (\texttt{osrm-clm/car}, \texttt{osrm-clm/bike}, \texttt{osrm-clm/foot}). Dentro de la red interna de Docker Compose, el proceso \texttt{osrm-routed} escucha siempre en el puerto 5000 en todos los contenedores, y el backend los referencia por nombre de servicio (\texttt{osrm-car}, \texttt{osrm-bike}, \texttt{osrm-foot}) en ese mismo puerto. Para verificar las instancias directamente desde el terminal del anfitrión, cada contenedor expone un puerto distinto hacia el exterior: 5000, 5001 y 5002, respectivamente para los perfiles de conducción, bicicleta y a pie.
 
-Una respuesta válida devuelve \texttt{"code": "Ok"} junto con la distancia en metros, la duración en segundos y la geometría en formato polilínea, una cadena de texto con la secuencia de coordenadas de la ruta, que el backend decodifica antes de enviarla al frontend. Si el grafo está incompleto o el perfil es incorrecto, OSRM devuelve \texttt{"code": "NoRoute"} o una ruta degradada, detectable al comparar visualmente los tres trazados en la interfaz.
+Una respuesta válida devuelve \texttt{"code": "Ok"} junto con la distancia en metros, la duración en segundos y la geometría en formato polilínea~\cite{GooglePolyline}, una cadena de texto con la secuencia de coordenadas de la ruta, que el backend decodifica antes de enviarla al frontend. Si el grafo está incompleto o el perfil es incorrecto, OSRM devuelve \texttt{"code": "NoRoute"} o una ruta degradada, detectable al comparar visualmente los tres trazados en la interfaz.
 
 \begin{code}[H]
 \begin{lstlisting}[language=bash]
