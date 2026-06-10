@@ -3,6 +3,9 @@
 
 Este capítulo detalla el proceso de construcción del simulador: las decisiones técnicas concretas tomadas en cada componente, los problemas que surgieron durante el desarrollo así como la solución adoptada en cada caso, y los resultados del entrenamiento y evaluación de los modelos de elección modal.
 
+El sistema implementado está disponible como código abierto en \url{https://github.com/ivanuclm/tfm}, lo que permite su reproducción, extensión y reutilización en futuros trabajos de investigación, desarrollo o divulgación sobre movilidad urbana. El procedimiento de despliegue para reproducir el entorno local se detalla en el anexo~\ref{anx:despliegue}.
+
+
 % -------------------------------------------------------
 \section{Infraestructura de enrutado viario: OSRM}
 \label{sec:impl_osrm}
@@ -13,7 +16,7 @@ Este capítulo detalla el proceso de construcción del simulador: las decisiones
 
 Open Source Routing Machine (OSRM) trabaja sobre un extracto de OpenStreetMap (OSM), un fichero binario con extensión \texttt{.osm.pbf} que contiene la geometría de calles, carreteras y caminos de un territorio junto con sus atributos de velocidad, sentido y accesibilidad por modo. Geofabrik \cite{GeofabrikDownloads} distribuye estos extractos por jerarquía geográfica, desde continentes hasta comunidades autónomas.
 
-Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enmarca el proyecto, escogiendo Toledo como caso de estudio definitivo, tal como se detalla en la sección~\ref{sec:impl_otp}. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal, por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos evaluados durante el desarrollo.
+Se utilizó el extracto de Castilla-La Mancha al ser la región en la que se enmarca el proyecto, escogiendo Toledo como caso de estudio definitivo, tal como se detalla en la sección~\ref{sec:impl_otp}. OpenTripPlanner reutiliza el mismo extracto para la red viaria peatonal, por lo que un único fichero sirve a dos servicios del sistema. La Tabla~\ref{tab:osm_extractos} resume los extractos de OSM evaluados durante el desarrollo.
 
 \begin{table}[H]
   \caption{Comparativa de extractos OSM disponibles en Geofabrik.}
@@ -43,11 +46,11 @@ El despliegue de OSRM pasó por tres iteraciones antes de conseguir la configura
 
 \textbf{Fase 3: instancia local con Docker.} La solución definitiva fue desplegar OSRM localmente mediante la imagen oficial \texttt{osrm/osrm-backend} \cite{OSRMGitHub}, con un contenedor independiente por modo de transporte (conducción, bicicleta y a pie; el transporte público en autobús es responsabilidad de OpenTripPlanner). Esta arquitectura elimina la dependencia de servicios externos en tiempo de ejecución y garantiza reproducibilidad, control de versión y ausencia de límites de cuota. El procedimiento completo de despliegue se recoge en el anexo~\ref{anx:despliegue}.\todo{Redactar anexo de despliegue: docker compose up (despliegue en un clic) y, opcionalmente, comandos OSRM manuales paso a paso}
 
-\newpage
+
 \subsection{Pipeline de preprocesado por perfil}
 \label{subsec:impl_osrm_pipeline}
 
-Para que OSRM pueda calcular rutas, el extracto \texttt{.osm.pbf} debe transformarse en una estructura de datos interna optimizada para consultas de camino mínimo. Este preprocesado se ejecuta una sola vez por perfil y solo hay que repetirlo si se actualiza el extracto.
+Para que OSRM pueda calcular rutas, el extracto \texttt{.osm.pbf} debe transformarse en una estructura de datos interna optimizada para ejecutar consultas y obtener el camino mínimo entre dos puntos del mapa. Este preprocesado se ejecuta una sola vez por perfil y solo hay que repetirlo si se actualiza el extracto de OSM.
 
 Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos de vía son accesibles, a qué velocidad y con qué restricciones de giro. Los tres archivos de perfil estándar (\texttt{car.lua}, \texttt{bicycle.lua} y \texttt{foot.lua}) están incluidos en la imagen oficial de Docker \texttt{osrm/osrm-backend} en \texttt{/opt/}, por lo que no es necesario descargarlos ni configurarlos externamente. Todas las etapas del preprocesado se ejecutan con esa misma imagen, lo que garantiza que el preprocesado sea reproducible en cualquier entorno de ejecución.
 
@@ -57,7 +60,7 @@ Cada perfil define las reglas de movilidad del modo correspondiente: qué tipos 
   \item \textbf{Personalización} (\texttt{osrm-customize}): asigna los pesos finales de cada arista sobre la estructura de celdas anterior, produciendo el grafo listo para servir peticiones de ruta.
 \end{enumerate}
 
-Las tres etapas generan los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}). \todo{Decidir si versionar con Git LFS; actualmente excluidos del repositorio por tamaño} Estos archivos no se versionan en el repositorio por su tamaño; el procedimiento completo se recoge en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con los comandos osrm-extract, osrm-partition, osrm-customize por perfil}
+Las tres etapas generan los ficheros \texttt{clm.osrm} y sus auxiliares, almacenados en directorios separados por perfil (\texttt{osrm-clm/car/}, \texttt{osrm-clm/bike/}, \texttt{osrm-clm/foot/}). \todo{Decidir si versionar con Git LFS; actualmente excluidos del repositorio por tamaño} Estos archivos no se versionan en el repositorio por su tamaño, pero el procedimiento completo para su generación se recoge en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con los comandos osrm-extract, osrm-partition, osrm-customize por perfil}
 
 El preprocesado completo de los tres perfiles sobre el extracto de Castilla-La Mancha tarda aproximadamente 97 segundos en la máquina de desarrollo. Los artefactos generados ocupan en total unos 2,1~GB: el perfil de conducción produce 291~MB porque solo incorpora la red viaria accesible al tráfico rodado, mientras que los perfiles de bicicleta y peatonal alcanzan los 911~MB cada uno al incluir además senderos, caminos rurales y zonas de acceso restringido al tráfico.
 
@@ -78,7 +81,7 @@ Cada uno de los tres contenedores OSRM ejecuta el servidor de enrutado sobre su 
 osrm-routed --algorithm mld /data/clm.osrm
 \end{lstlisting}
 
-Los tres contenedores comparten imagen y comando de arranque. Cada uno monta el directorio de artefactos de su perfil (\texttt{osrm-clm/car}, \texttt{osrm-clm/bike}, \texttt{osrm-clm/foot}). El backend los resuelve por nombre de servicio dentro de la red Docker Compose, siempre en el puerto 5000. Los puertos 5000, 5001 y 5002 del anfitrión permiten verificar cada instancia desde el terminal.
+Los tres contenedores comparten imagen y comando de arranque. Cada uno monta el directorio de artefactos de su perfil (\texttt{osrm-clm/car}, \texttt{osrm-clm/bike}, \texttt{osrm-clm/foot}). Dentro de la red interna de Docker Compose, el proceso \texttt{osrm-routed} escucha siempre en el puerto 5000 en todos los contenedores, y el backend los referencia por nombre de servicio (\texttt{osrm-car}, \texttt{osrm-bike}, \texttt{osrm-foot}) en ese mismo puerto. Para verificar las instancias directamente desde el terminal del anfitrión, cada contenedor expone un puerto distinto hacia el exterior: 5000, 5001 y 5002, respectivamente para los perfiles de conducción, bicicleta y a pie.
 
 Una respuesta válida devuelve \texttt{"code": "Ok"} junto con la distancia en metros, la duración en segundos y la geometría en formato polilínea, una cadena de texto con la secuencia de coordenadas de la ruta, que el backend decodifica antes de enviarla al frontend. Si el grafo está incompleto o el perfil es incorrecto, OSRM devuelve \texttt{"code": "NoRoute"} o una ruta degradada, detectable al comparar visualmente los tres trazados en la interfaz.
 
@@ -86,10 +89,8 @@ Una respuesta válida devuelve \texttt{"code": "Ok"} junto con la distancia en m
 \begin{lstlisting}[language=bash]
 # osrm-car  (conduccion, localhost:5000)
 curl "http://localhost:5000/route/v1/driving/-4.0356,39.8750;-4.0023,39.8602?overview=full"
-
 # osrm-bike (bicicleta,  localhost:5001)
 curl "http://localhost:5001/route/v1/cycling/-4.0356,39.8750;-4.0023,39.8602?overview=full"
-
 # osrm-foot (peatonal,   localhost:5002)
 curl "http://localhost:5002/route/v1/foot/-4.0356,39.8750;-4.0023,39.8602?overview=full"
 \end{lstlisting}
@@ -97,12 +98,12 @@ curl "http://localhost:5002/route/v1/foot/-4.0356,39.8750;-4.0023,39.8602?overvi
 \label{cod:osrm_verificacion}
 \end{code}
 
+La Figura~\ref{fig:osrm_rutas} muestra las tres rutas calculadas simultáneamente para el mismo par origen-destino: en azul, la ruta de conducción sigue las calles principales; en verde, la ruta de bicicleta prioriza carriles bici y calles tranquilas; en gris con línea discontinua, la ruta peatonal puede acceder a zonas restringidas al tráfico rodado. Los tres trazados ponen de manifiesto las distintas restricciones de cada perfil sobre la red viaria de Toledo.
+
 \begin{figure}[H]
   \centering
-  % \missingfigure{Captura de la interfaz mostrando las tres rutas OSRM simultáneas sobre el mapa de Toledo: azul (conducción), verde (bicicleta), gris (a pie), para el mismo par origen-destino. Los tres trazados reflejan las restricciones específicas de cada perfil: la ruta en coche sigue viarios principales, la de bicicleta prioriza carriles bici y calles tranquilas, y la peatonal puede acceder a zonas restringidas al tráfico.}
   \includegraphics[width=1.0\textwidth]{figs/Rutas2_crop.jpeg}
-
-  \caption{Rutas OSRM para los tres perfiles de transporte sobre Toledo. En azul, la ruta de conducción sigue las calles principales; en verde, la ruta de bicicleta prioriza carriles bici y calles tranquilas; en gris con línea discontinua, la ruta peatonal puede acceder a zonas restringidas al tráfico rodado.}
+  \caption{Rutas OSRM para los tres perfiles de transporte sobre Toledo.}
   \label{fig:osrm_rutas}
 \end{figure}
 
@@ -120,37 +121,46 @@ Las opciones disponibles en Castilla-La Mancha resultaron ser muy escasas. En Al
 
 Ante la ausencia de un feed GTFS de Castilla-La Mancha válido, se evaluaron feeds de otras ciudades como candidatos alternativos para el proyecto. La EMT de Madrid \cite{NAPEMTMadrid}, con 4.914 paradas, 236 rutas y 87.137 viajes programados, sirvió de banco de pruebas para validar la integración de OTP con datos reales y desarrollar los endpoints de la capa estática del backend. El volumen del feed reveló además un problema de paginación: la API, que exige un límite explícito, devolvía solo las primeras 500 paradas por defecto, dejando la red visualmente incompleta. El límite se ajustó a 5.000, suficiente para Madrid y los feeds posteriores.
 
-El feed GTFS elegido finalmente fue el de los autobuses urbanos de Toledo \cite{NAPToledoUrbano}. Con 268 paradas, 56 rutas y 46.597 viajes que cubren aproximadamente un mes de servicio programado, tiene un tamaño ajustado al alcance del simulador, cubre el casco urbano, el polígono industrial y las urbanizaciones periféricas, e incluye geometría de rutas para su representación cartográfica. Como el feed no incluye tarifas, el coste del billete se introduce como parámetro en el panel lateral de la interfaz, junto al resto de variables del perfil de viajero, para su uso en la inferencia modal.
+El feed GTFS elegido finalmente fue el de los autobuses urbanos de Toledo \cite{NAPToledoUrbano}. Con 268 paradas, 56 rutas y 46.597 viajes que cubren aproximadamente un mes de servicio programado, tiene un tamaño ajustado al alcance del simulador, cubre el casco urbano, el polígono industrial y las urbanizaciones periféricas, e incluye geometría de rutas para su representación cartográfica. Como el feed no incluye tarifas, el coste del billete se introduce como parámetro en el panel lateral de la interfaz (de forma que pueda ser fijado por el analista en la simulación), junto al resto de variables del perfil de viajero.
 % El extracto OSM de Castilla-La Mancha ya disponible para OSRM servía también como base viaria para OTP, por lo que no fue necesario descargar ni preprocesar ningún fichero adicional.
 
 \subsection{Vigencia del feed y decisión de fecha fija}
 \label{subsec:impl_otp_fecha}
 
-Los feeds GTFS del NAP tienen vigencia limitada; para el operador de Toledo, los ficheros publicados cubren entre tres y seis semanas de servicio programado. Esto generaba un problema operativo directo. Si la fecha de consulta caía fuera del rango de validez del feed cargado en OTP, el planificador no devolvía itinerarios reales y el simulador producía resultados inservibles para la inferencia modal.
+Los feeds GTFS del NAP tienen vigencia limitada; para el operador de Toledo, los ficheros publicados cubren aproximadamente tres meses de servicio programado (90 días en los feeds descargados durante el desarrollo). Esto generaba un problema operativo directo. Si la fecha de consulta caía fuera del rango de validez del feed cargado en OTP, el planificador no devolvía itinerarios de transporte público y el simulador producía resultados inservibles para la inferencia modal.
 
-Al reanudar el desarrollo en enero de 2026, la fecha del sistema había superado el rango del feed en uso y OTP ya no devolvía itinerarios reales. Se adoptaron dos medidas: fijar en el backend una fecha y hora estáticas (\texttt{date=2025-12-01}, \texttt{time=12:00}) siempre dentro del rango del feed descargado, y versionar una copia estable del feed en el directorio de datos del repositorio. Así, todos los experimentos y ejecuciones del simulador trabajan sobre el mismo escenario de oferta de transporte. Durante el desarrollo se descargaron varias versiones del feed; en las primeras el operador figuraba como «Autobuses Toledo» y en posteriores había pasado a denominarse UNAUTO S.L. (Grupo Ruiz), aunque el formato de los ficheros GTFS permaneció idéntico en todos los casos.
+Al reanudar el desarrollo en enero de 2026, la fecha del sistema había superado el rango del feed en uso, por lo que se adoptaron dos medidas: fijar en el backend una fecha y hora estáticas (\texttt{date=2025-12-01}, \texttt{time=12:00}) siempre dentro del rango del feed descargado, y versionar una copia estable del feed en el directorio de datos del repositorio. Así, todos los experimentos y ejecuciones del simulador trabajan sobre el mismo escenario de oferta de transporte. Durante el desarrollo se descargaron varias versiones del feed; en las primeras el operador figuraba como «Autobuses Toledo» y en posteriores había pasado a denominarse UNAUTO S.L. (Grupo Ruiz), aunque el formato de los ficheros GTFS permaneció idéntico en todos los casos.
 
-Las 12:00 se eligieron por situarse en la franja de mayor frecuencia de servicio y alejarse del horario nocturno, donde la oferta es reducida o inexistente.
+Se fijó la hora de consulta a las 12:00 por situarse en la franja de mayor frecuencia de servicio y evitar el horario nocturno, donde la oferta es reducida o inexistente.
 
 \subsection{Construcción del grafo multimodal}
 \label{subsec:impl_otp_grafo}
 
-El grafo multimodal de OTP se genera en modo de construcción (\texttt{--build --save}) sobre un directorio que contiene el extracto OSM de Castilla-La Mancha y el fichero ZIP del feed GTFS de Toledo. OTP 2.5.0 combina ambas fuentes en un único grafo serializado (\texttt{graph.obj}) que integra la red viaria para los tramos de acceso a pie y la red de servicio programado del autobús para los tramos en vehículo. El proceso tarda aproximadamente dos minutos en la máquina de desarrollo y solo debe ejecutarse una vez por versión del feed.
+El grafo se construye con un único comando Docker ejecutado sobre el directorio \texttt{otp-toledo/}, que debe contener el extracto OSM (\texttt{clm.osm.pbf}) y el feed GTFS (\texttt{GTFS\_Urbano\_Toledo.zip}):
 
-Al igual que los grafos OSRM, el \texttt{graph.obj} no se versiona en el repositorio por su tamaño y debe generarse o descargarse antes del primer despliegue. El procedimiento completo se documenta en el anexo~\ref{anx:despliegue}.\todo{Completar anexo de despliegue con construcción del grafo OTP: comando --build --save y requisitos previos (OSM + GTFS)} Una vez disponible el grafo, OTP se lanza en modo de explotación (\texttt{--load --serve}) y queda accesible en el puerto 8080, exponiendo la API REST de planificación \cite{OTPRouteRequest}.
+\begin{lstlisting}[language=bash]
+docker run --rm -v "otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --build --save
+\end{lstlisting}
+
+OTP lee ambos ficheros y serializa el resultado en \texttt{graph.obj}: la red viaria OSM modela los tramos de acceso a pie a las paradas, y el feed GTFS aporta el servicio programado con horarios, paradas y geometría de líneas. El proceso tarda aproximadamente dos minutos en la máquina de desarrollo. Solo es necesario repetirlo cuando se actualiza el feed; el extracto OSM puede reutilizarse entre versiones.
+
+Al igual que los grafos OSRM, el \texttt{graph.obj} no se versiona en el repositorio por su tamaño y debe generarse antes del primer despliegue.\todo{Completar anexo de despliegue con construcción del grafo OTP: comando --build --save y requisitos previos (OSM + GTFS)} Una vez disponible, OTP se lanza en modo de explotación (\texttt{--load --serve}) y queda accesible en el puerto 8080, exponiendo la API REST de planificación \cite{OTPRouteRequest}.
 
 \subsection{Integración de itinerarios en el backend}
 \label{subsec:impl_otp_integracion}
 
 El router \texttt{/api/otp} del backend consulta OTP mediante peticiones HTTP a \texttt{/otp/routers/default/plan} y deserializa la respuesta para extraer los tramos (\textit{legs}) del itinerario seleccionado. OTP devuelve hasta cinco itinerarios alternativos. El criterio de selección automática es el siguiente: se elige el primero que incluya al menos un tramo de transporte público (modo distinto de \texttt{WALK}); si ninguno cumple esta condición, se devuelve el de menor duración total. El frontend permite paginar entre las alternativas mediante los botones «Anterior» y «Siguiente», que transmiten el índice del itinerario deseado al backend, garantizando que el vector de características para la inferencia se calcula siempre sobre el mismo itinerario que se visualiza.
 
-Para cada tramo del itinerario seleccionado se devuelve: modo de transporte, distancia, duración, geometría decodificada, parada de inicio y fin, nombre de línea, agencia y horarios de salida y llegada en formato \texttt{HH:MM}. La geometría de cada tramo se decodifica desde el formato polyline y se concatena en el frontend para formar la traza completa del itinerario.
+Para cada tramo del itinerario seleccionado se devuelve: modo de transporte, distancia, duración, geometría decodificada, parada de inicio y fin, nombre de línea, agencia y horarios de salida y llegada en formato \texttt{HH:MM}. La geometría, codificada en formato polyline, se decodifica en el frontend y se concatena para componer la traza completa del itinerario.
 
-\textbf{Problema de itinerarios sin transporte público real.} Cuando la distancia entre origen y destino es muy corta, o cuando no existe servicio de autobús entre los dos puntos en el horario fijado, OTP puede devolver como «mejor itinerario» una ruta completamente a pie, compuesta por un único tramo \texttt{WALK}, equivalente en tiempo y trayecto a la ruta que ya proporciona OSRM con el perfil peatonal. En ese caso, si se construyese el vector de características de transporte público con los valores devueltos (tiempo de acceso cero, tiempo en bus cero, transbordos cero), el modelo podría asignar una probabilidad elevada al modo \textit{pt} en trayectos sin servicio real. La solución adoptada, descrita en la sección~\ref{subsec:impl_backend_penalizacion}, consiste en detectar esta situación y sobreescribir las variables PT con valores de penalización que desincentivan la selección del modo por el modelo.
+Cuando la distancia entre origen y destino es muy corta, o cuando no existe servicio de autobús entre los dos puntos en el horario fijado, OTP puede devolver como «mejor itinerario» una ruta completamente a pie, compuesta por un único tramo \texttt{WALK}, equivalente en tiempo y trayecto a la ruta que ya proporciona OSRM con el perfil peatonal. En ese caso, si se construyese el vector de características de transporte público con los valores devueltos (tiempo de acceso cero, tiempo en bus cero, transbordos cero), el modelo podría asignar una probabilidad elevada al modo \textit{pt} en trayectos sin servicio real. La solución adoptada, descrita en la sección~\ref{subsec:impl_backend_penalizacion}, consiste en detectar esta situación y sobrescribir los atributos de transporte público del vector de características con valores de penalización que llevan al modelo a descartar ese modo.
 
-\begin{figure}[htbp]
+La Figura~\ref{fig:otp_itinerario} ilustra un itinerario multimodal típico en la interfaz del simulador: un tramo a pie inicial (línea discontinua gris) conecta el origen con la parada de embarque, un tramo en autobús (línea continua de color) cubre el recorrido principal, y un tramo a pie final lleva hasta el destino. En el panel lateral se desglosa cada tramo con su modo de transporte, duración en minutos, paradas de inicio y fin, nombre de línea y horario de salida.
+
+\begin{figure}[H]
   \centering
-  \missingfigure{Captura de la interfaz mostrando un itinerario multimodal OTP sobre el mapa de Toledo: tramo a pie inicial (línea discontinua gris) desde el origen hasta la parada de embarque, tramo en autobús (línea continua de color) y tramo a pie final hasta el destino. En el panel lateral, desglose del itinerario con cada leg: modo, duración en minutos, paradas de inicio y fin, nombre de línea y horario de salida.}
+%   \missingfigure{Captura de la interfaz mostrando un itinerario multimodal OTP sobre el mapa de Toledo: tramo a pie inicial (línea discontinua gris) desde el origen hasta la parada de embarque, tramo en autobús (línea continua de color) y tramo a pie final hasta el destino. En el panel lateral, desglose del itinerario con cada leg: modo, duración en minutos, paradas de inicio y fin, nombre de línea y horario de salida.}
+    \includegraphics[width=1.0\textwidth]{figs/ItinerarioMultimodalZoom.png}
   \caption{Itinerario multimodal OTP con desglose de tramos en la interfaz.}
   \label{fig:otp_itinerario}
 \end{figure}
@@ -163,37 +173,54 @@ Para cada tramo del itinerario seleccionado se devuelve: modo de transporte, dis
 \subsection{Arquitectura de la capa estática}
 \label{subsec:impl_gtfs_arquitectura}
 
-El router \texttt{/api/gtfs} expone la información estática de la red de autobús directamente desde los ficheros del feed descomprimido en el directorio de datos del backend. Esta capa es completamente independiente de OpenTripPlanner: lee los ficheros \texttt{stops.txt}, \texttt{routes.txt}, \texttt{trips.txt}, \texttt{stop\_times.txt}, \texttt{shapes.txt} y \texttt{calendar\_dates.txt} con pandas en el arranque del servicio y mantiene los DataFrames en memoria durante toda la vida del proceso. La separación respecto a OTP tiene una ventaja operativa concreta: la red de transporte puede consultarse aunque el planificador no esté disponible, lo que resulta útil durante el desarrollo y facilita la depuración sin necesidad de levantar el servicio completo.
+El router \texttt{/api/gtfs} expone la información estática de la red de autobús directamente a partir de los ficheros del feed GTFS, sin depender de OpenTripPlanner. Esta separación tiene una ventaja operativa concreta: la red puede consultarse aunque OTP no esté disponible, lo que resultó útil durante el desarrollo para depurar la visualización de paradas y líneas sin necesidad de levantar el planificador ni construir el grafo.
+
+El feed GTFS es una colección de ficheros CSV empaquetados en un archivo ZIP \cite{GTFSReference}. En el arranque del servicio, el backend descomprime y carga en memoria con \texttt{pandas} los seis ficheros necesarios: \texttt{stops.txt} (paradas con coordenadas y nombre), \texttt{routes.txt} (líneas de la red), \texttt{trips.txt} (servicios programados por línea), \texttt{stop\_times.txt} (horarios de paso por cada parada), \texttt{shapes.txt} (geometría de los trazados) y \texttt{calendar\_dates.txt} (calendario de excepciones de servicio). Los DataFrames resultantes permanecen en memoria durante toda la vida del proceso.
+
+Responder a consultas como «qué líneas pasan por esta parada» o «cuál es el horario de una ruta para una fecha concreta» requiere cruzar varios de estos ficheros. Para obtener las líneas asociadas a una parada se encadenan tres joins: \texttt{stops.txt} $\to$ \texttt{stop\_times.txt} $\to$ \texttt{trips.txt} $\to$ \texttt{routes.txt}. Para los horarios por fecha se añade el filtro de \texttt{calendar\_dates.txt}, que indica los días en que cada servicio está activo. Mantener todos los ficheros en memoria evita releer los CSV en cada petición y elimina la necesidad de añadir una base de datos para datos que no cambian en tiempo de ejecución.
 
 \subsection{Endpoints disponibles}
 \label{subsec:impl_gtfs_endpoints}
 
-Los cuatro endpoints de la capa GTFS cubren las operaciones necesarias para la visualización cartográfica y la consulta de la red:
+La capa GTFS expone cuatro endpoints que cubren las operaciones necesarias para la visualización cartográfica y la consulta de la red:
 
 \begin{itemize}
-  \item \textbf{Listado de paradas} con filtro de bounding box: devuelve todas las paradas del feed con identificador, nombre, coordenadas y líneas asociadas. El límite configurable (5.000 por defecto) es holgadamente suficiente para el feed de Toledo (268 paradas). Este parámetro surgió directamente de las pruebas con el feed de la EMT de Madrid, donde una paginación inicial a 500 paradas dejaba la red incompleta en la visualización.
+  \item \textbf{Listado de paradas} (\texttt{GET /api/gtfs/stops}): devuelve todas las paradas del feed con identificador, nombre, coordenadas y líneas asociadas. Acepta un parámetro \texttt{limit} (5.000 por defecto, suficiente para el feed de Toledo con 268 paradas) y un filtro de bounding box opcional para restringir el resultado al área visible en el mapa.
 
-  \item \textbf{Listado de rutas}: catálogo completo de líneas con identificador, nombre corto, nombre largo y atributos de color cuando están disponibles en el feed.
+  \item \textbf{Listado de rutas} (\texttt{GET /api/gtfs/routes}): catálogo completo de líneas con identificador, nombre corto, nombre largo y atributos de color cuando están disponibles en el feed.
 
-  \item \textbf{Detalle de ruta}: dado el identificador de una línea, devuelve la secuencia ordenada de paradas y la geometría del \textit{shape} asociado para su representación cartográfica.
+  \item \textbf{Detalle de ruta} (\texttt{GET /api/gtfs/routes/\{route\_id\}}): dado el identificador de una línea, devuelve la secuencia ordenada de paradas y la geometría del \textit{shape} asociado para su representación cartográfica.
 
-  \item \textbf{Horarios por fecha}: dado un identificador de ruta y una fecha, devuelve los servicios programados agrupados por dirección, con número de expediciones, primera y última salida y listado completo de horarios de salida.
+  \item \textbf{Horarios por fecha} (\texttt{GET /api/gtfs/routes/\{route\_id\}/schedule}): dado un identificador de ruta y una fecha (\texttt{?date=YYYY-MM-DD}), devuelve los servicios programados agrupados por dirección, con primera y última salida y listado completo de horarios. Al igual que con OTP (sección~\ref{subsec:impl_otp_fecha}), la interfaz usa una fecha fija dentro del rango de validez del feed en lugar de la fecha del sistema, por la misma razón: el feed cubre un periodo de aproximadamente tres meses y cualquier fecha posterior devuelve cero servicios.
 \end{itemize}
+
+El feed de Toledo contiene 56 entradas en \texttt{routes.txt}, pero solo 25 líneas físicas distintas: el operador crea un \texttt{route\_id} independiente por cada combinación de dirección y variante de recorrido de una misma línea. La interfaz agrupa las entradas por nombre corto (\texttt{route\_short\_name}) y muestra únicamente las 25 líneas únicas, evitando duplicados en el catálogo visual.
 
 \subsection{Coloración determinista de líneas}
 \label{subsec:impl_gtfs_color}
 
-El feed GTFS de Toledo no incluye de forma consistente los campos opcionales \texttt{route\_color} y \texttt{route\_text\_color}, por lo que una asignación aleatoria de colores produciría inconsistencias visuales entre sesiones. Para garantizar que la misma línea muestra siempre el mismo color, el color se deriva de forma determinista mediante una función de hash sobre el identificador de ruta:
+El feed GTFS de Toledo no incluye de forma consistente los campos opcionales \texttt{route\_color} y \texttt{route\_text\_color}, por lo que una asignación aleatoria generaría inconsistencias visuales entre sesiones: la misma línea aparecería con colores distintos en cada recarga. Para garantizar estabilidad visual, el color de cada línea se determina de forma completamente determinista mediante un hash polinómico sobre los caracteres de su identificador:
 
 \begin{equation}
-  \text{color}(\mathit{route\_id}) = \text{PALETTE}\!\left[\left|\sum_{i} \mathit{route\_id}[i] \cdot 31^{\,\text{pos}(i)}\right| \bmod |\text{PALETTE}|\right]
+  \text{color}(\mathit{route\_id}) = \text{PALETTE}\!\left[\left|\sum_{i=0}^{n-1} \mathrm{ord}(\mathit{route\_id}[i]) \cdot 31^{i}\right| \bmod |\text{PALETTE}|\right]
 \end{equation}
 
-donde PALETTE es un vector de siete colores predefinidos. La función es invariante al orden de carga y al estado de la aplicación, lo que garantiza la coherencia visual en cualquier sesión.
+La función convierte el identificador de texto en un número entero en tres pasos. Primero, cada carácter se transforma en su valor ASCII mediante \texttt{ord()}, con lo que la cadena queda representada como una secuencia de enteros. Segundo, cada valor se pondera por $31^{i}$, donde $i$ es la posición del carácter en la cadena: así, cadenas con los mismos caracteres en distinto orden producen hashes diferentes (por ejemplo, \texttt{"L1"} y \texttt{"1L"} dan resultados distintos). El 31 es una base prima con buenas propiedades de distribución en hashes de cadenas, la misma que emplea \texttt{String.hashCode()} en Java. Por último, el valor absoluto evita índices negativos y el módulo sobre $|\mathrm{PALETTE}|$ garantiza que el resultado siempre caiga dentro del rango válido del vector, independientemente del valor del hash. La implementación en Python refleja fielmente la fórmula:
 
-\begin{figure}[htbp]
+\begin{lstlisting}[language=Python]
+PALETTE = ["#f97316", "#0ea5e9", ..., "#06b6d4", "#8b5cf6"]
+
+def route_color(route_id: str) -> str:
+    h = sum(ord(c) * (31 ** i) for i, c in enumerate(route_id))
+    return PALETTE[abs(h) % len(PALETTE)]
+\end{lstlisting}
+
+La Figura~\ref{fig:gtfs_paradas} muestra la capa GTFS en la interfaz: las paradas aparecen como marcadores interactivos sobre el mapa de Toledo, y al seleccionar una se despliega un popup con su nombre, código y las líneas que la sirven coloreadas con la paleta determinista. En el panel lateral se presenta el detalle de la línea seleccionada: el trazado completo sobre el mapa, la secuencia de paradas y los horarios del día.
+
+\begin{figure}[H]
   \centering
-  \missingfigure{Captura de la interfaz mostrando las paradas GTFS sobre el mapa de Toledo como marcadores interactivos. Incluir el popup de una parada abierto (nombre, código y líneas que pasan por ella con sus colores deterministas). En el panel lateral, detalle de una línea seleccionada: shape trazado sobre el mapa, secuencia de paradas y horarios del día.}
+    % \missingfigure{Captura de la interfaz mostrando la capa GTFS: paradas como marcadores interactivos sobre el mapa de Toledo, con popups que muestran nombre, código y líneas asociadas coloreadas. Al seleccionar una línea, se muestra su trazado completo sobre el mapa, secuencia de paradas y horarios del día en el panel lateral.}
+  \includegraphics[width=1.0\textwidth]{figs/GTFS_Linea5.png}
   \caption{Capa GTFS en la interfaz: paradas interactivas y detalle de línea.}
   \label{fig:gtfs_paradas}
 \end{figure}

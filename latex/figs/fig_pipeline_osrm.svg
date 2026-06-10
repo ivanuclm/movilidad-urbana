@@ -1,0 +1,252 @@
+<svg width="1400" height="510" viewBox="0 0 1400 510"
+     xmlns="http://www.w3.org/2000/svg"
+     font-family="'Courier New', Courier, 'Lucida Console', monospace">
+
+  <defs>
+    <!-- Arrowhead: neutral (tronco) -->
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#374151"/>
+    </marker>
+    <!-- Arrowhead: car (purple) -->
+    <marker id="arr-car" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#7c3aed"/>
+    </marker>
+    <!-- Arrowhead: bike (green) -->
+    <marker id="arr-bike" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#16a34a"/>
+    </marker>
+    <!-- Arrowhead: foot (gray) -->
+    <marker id="arr-foot" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <!-- ══════════ BACKGROUND ══════════ -->
+  <rect width="1400" height="510" fill="white"/>
+
+  <!-- ══════════ INPUT FILE: CLM.osm.pbf ══════════ -->
+  <rect x="20" y="246" width="142" height="68" rx="8"
+        fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <!-- file icon -->
+  <text x="91" y="267" text-anchor="middle" font-size="16" font-family="sans-serif">📄</text>
+  <text x="91" y="285" text-anchor="middle" font-size="11" fill="#0f172a">CLM.osm.pbf</text>
+  <text x="91" y="302" text-anchor="middle" font-size="10"
+        font-family="'Segoe UI', Arial, sans-serif" fill="#64748b">~98 MB</text>
+
+  <!-- ══════════ BRANCH WIRING ══════════ -->
+  <!-- horizontal input → trunk -->
+  <line x1="162" y1="280" x2="180" y2="280"
+        stroke="#374151" stroke-width="1.5"/>
+  <!-- vertical trunk -->
+  <line x1="180" y1="118" x2="180" y2="442"
+        stroke="#374151" stroke-width="1.5"/>
+  <!-- branch dots -->
+  <circle cx="180" cy="118" r="3.5" fill="#374151"/>
+  <circle cx="180" cy="280" r="3.5" fill="#374151"/>
+  <circle cx="180" cy="442" r="3.5" fill="#374151"/>
+  <!-- → car row -->
+  <line x1="180" y1="118" x2="218" y2="118"
+        stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-car)"/>
+  <!-- → bike row -->
+  <line x1="180" y1="280" x2="218" y2="280"
+        stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-bike)"/>
+  <!-- → foot row -->
+  <line x1="180" y1="442" x2="218" y2="442"
+        stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr-foot)"/>
+
+  <!-- ══════════ DOCKER CONTAINER ══════════ -->
+  <rect x="200" y="44" width="840" height="422" rx="12"
+        fill="#eff6ff" fill-opacity="0.35"
+        stroke="#60a5fa" stroke-width="2" stroke-dasharray="10 5"/>
+  <!-- label -->
+  <text x="620" y="69" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif"
+        font-size="13" font-weight="600" fill="#1d4ed8">
+    🐳  osrm/osrm-backend:latest
+  </text>
+
+  <!-- row separators -->
+  <line x1="210" y1="198" x2="1032" y2="198"
+        stroke="#bfdbfe" stroke-width="1" stroke-dasharray="5 4"/>
+  <line x1="210" y1="362" x2="1032" y2="362"
+        stroke="#bfdbfe" stroke-width="1" stroke-dasharray="5 4"/>
+
+  <!-- ┄┄┄ Column header labels (top of docker content) ┄┄┄ -->
+  <text x="335" y="86" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif"
+        font-size="9" fill="#6b7280" letter-spacing="0.5">EXTRACT</text>
+  <text x="560" y="86" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif"
+        font-size="9" fill="#6b7280" letter-spacing="0.5">PARTITION</text>
+  <text x="764" y="86" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif"
+        font-size="9" fill="#6b7280" letter-spacing="0.5">CUSTOMIZE</text>
+  <text x="933" y="86" text-anchor="middle"
+        font-family="'Segoe UI', Arial, sans-serif"
+        font-size="9" fill="#6b7280" letter-spacing="0.5">ARTEFACTOS</text>
+
+  <!-- ═══════════════════════════════════════════
+       ROW 1 — CAR   y_center = 118
+       ═══════════════════════════════════════════ -->
+
+  <!-- osrm-extract (car) -->
+  <rect x="220" y="92" width="228" height="52" rx="6"
+        fill="#f3e8ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="334" y="113" text-anchor="middle" font-size="11" fill="#6d28d9">osrm-extract</text>
+  <text x="334" y="131" text-anchor="middle" font-size="10" fill="#7c3aed">-p car.lua</text>
+
+  <!-- → partition -->
+  <line x1="448" y1="118" x2="466" y2="118"
+        stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-car)"/>
+
+  <!-- osrm-partition (car) -->
+  <rect x="468" y="92" width="185" height="52" rx="6"
+        fill="#f3e8ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="560" y="122" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#6d28d9">osrm-partition</text>
+
+  <!-- → customize -->
+  <line x1="653" y1="118" x2="671" y2="118"
+        stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-car)"/>
+
+  <!-- osrm-customize (car) -->
+  <rect x="673" y="92" width="185" height="52" rx="6"
+        fill="#f3e8ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="765" y="122" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#6d28d9">osrm-customize</text>
+
+  <!-- → folder -->
+  <line x1="858" y1="118" x2="876" y2="118"
+        stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-car)"/>
+
+  <!-- folder artifact (car) -->
+  <rect x="878" y="96" width="110" height="44" rx="5"
+        fill="#faf5ff" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2"/>
+  <text x="893" y="121" font-size="13" dominant-baseline="middle"
+        font-family="sans-serif">📁</text>
+  <text x="940" y="114" text-anchor="middle" font-size="9.5" fill="#6d28d9">osrm-clm/</text>
+  <text x="940" y="128" text-anchor="middle" font-size="9.5" fill="#6d28d9">car/</text>
+
+  <!-- → server (car) -->
+  <line x1="988" y1="118" x2="1053" y2="118"
+        stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-car)"/>
+
+  <!-- ═══════════════════════════════════════════
+       ROW 2 — BIKE   y_center = 280
+       ═══════════════════════════════════════════ -->
+
+  <!-- osrm-extract (bike) -->
+  <rect x="220" y="254" width="228" height="52" rx="6"
+        fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="334" y="275" text-anchor="middle" font-size="11" fill="#15803d">osrm-extract</text>
+  <text x="334" y="293" text-anchor="middle" font-size="10" fill="#16a34a">-p bicycle.lua</text>
+
+  <!-- → partition -->
+  <line x1="448" y1="280" x2="466" y2="280"
+        stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-bike)"/>
+
+  <!-- osrm-partition (bike) -->
+  <rect x="468" y="254" width="185" height="52" rx="6"
+        fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="560" y="284" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#15803d">osrm-partition</text>
+
+  <!-- → customize -->
+  <line x1="653" y1="280" x2="671" y2="280"
+        stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-bike)"/>
+
+  <!-- osrm-customize (bike) -->
+  <rect x="673" y="254" width="185" height="52" rx="6"
+        fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="765" y="284" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#15803d">osrm-customize</text>
+
+  <!-- → folder -->
+  <line x1="858" y1="280" x2="876" y2="280"
+        stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-bike)"/>
+
+  <!-- folder artifact (bike) -->
+  <rect x="878" y="258" width="110" height="44" rx="5"
+        fill="#f0fdf4" stroke="#16a34a" stroke-width="1" stroke-dasharray="4 2"/>
+  <text x="893" y="283" font-size="13" dominant-baseline="middle"
+        font-family="sans-serif">📁</text>
+  <text x="940" y="276" text-anchor="middle" font-size="9.5" fill="#15803d">osrm-clm/</text>
+  <text x="940" y="290" text-anchor="middle" font-size="9.5" fill="#15803d">bike/</text>
+
+  <!-- → server (bike) -->
+  <line x1="988" y1="280" x2="1053" y2="280"
+        stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-bike)"/>
+
+  <!-- ═══════════════════════════════════════════
+       ROW 3 — FOOT   y_center = 442
+       ═══════════════════════════════════════════ -->
+
+  <!-- osrm-extract (foot) -->
+  <rect x="220" y="416" width="228" height="52" rx="6"
+        fill="#e5e7eb" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="334" y="437" text-anchor="middle" font-size="11" fill="#374151">osrm-extract</text>
+  <text x="334" y="455" text-anchor="middle" font-size="10" fill="#6b7280">-p foot.lua</text>
+
+  <!-- → partition -->
+  <line x1="448" y1="442" x2="466" y2="442"
+        stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr-foot)"/>
+
+  <!-- osrm-partition (foot) -->
+  <rect x="468" y="416" width="185" height="52" rx="6"
+        fill="#e5e7eb" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="560" y="446" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#374151">osrm-partition</text>
+
+  <!-- → customize -->
+  <line x1="653" y1="442" x2="671" y2="442"
+        stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr-foot)"/>
+
+  <!-- osrm-customize (foot) -->
+  <rect x="673" y="416" width="185" height="52" rx="6"
+        fill="#e5e7eb" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="765" y="446" text-anchor="middle"
+        dominant-baseline="middle" font-size="11" fill="#374151">osrm-customize</text>
+
+  <!-- → folder -->
+  <line x1="858" y1="442" x2="876" y2="442"
+        stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr-foot)"/>
+
+  <!-- folder artifact (foot) -->
+  <rect x="878" y="420" width="110" height="44" rx="5"
+        fill="#f3f4f6" stroke="#6b7280" stroke-width="1" stroke-dasharray="4 2"/>
+  <text x="893" y="445" font-size="13" dominant-baseline="middle"
+        font-family="sans-serif">📁</text>
+  <text x="940" y="438" text-anchor="middle" font-size="9.5" fill="#374151">osrm-clm/</text>
+  <text x="940" y="452" text-anchor="middle" font-size="9.5" fill="#374151">foot/</text>
+
+  <!-- → server (foot) -->
+  <line x1="988" y1="442" x2="1053" y2="442"
+        stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr-foot)"/>
+
+  <!-- ══════════ SERVER BOXES ══════════ -->
+
+  <!-- osrm-car :5000 -->
+  <rect x="1055" y="86" width="220" height="64" rx="8"
+        fill="#f3e8ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1082" y="118" font-size="22" dominant-baseline="middle"
+        font-family="sans-serif">🚗</text>
+  <text x="1175" y="108" text-anchor="middle" font-size="11" fill="#6d28d9">osrm-car</text>
+  <text x="1175" y="126" text-anchor="middle" font-size="11" fill="#7c3aed">:5000</text>
+
+  <!-- osrm-bike :5001 -->
+  <rect x="1055" y="248" width="220" height="64" rx="8"
+        fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="1082" y="280" font-size="22" dominant-baseline="middle"
+        font-family="sans-serif">🚲</text>
+  <text x="1175" y="270" text-anchor="middle" font-size="11" fill="#15803d">osrm-bike</text>
+  <text x="1175" y="288" text-anchor="middle" font-size="11" fill="#16a34a">:5001</text>
+
+  <!-- osrm-foot :5002 -->
+  <rect x="1055" y="410" width="220" height="64" rx="8"
+        fill="#e5e7eb" stroke="#6b7280" stroke-width="2"/>
+  <text x="1082" y="442" font-size="22" dominant-baseline="middle"
+        font-family="sans-serif">🚶</text>
+  <text x="1175" y="432" text-anchor="middle" font-size="11" fill="#374151">osrm-foot</text>
+  <text x="1175" y="450" text-anchor="middle" font-size="11" fill="#6b7280">:5002</text>
+
+</svg>
