@@ -9,9 +9,9 @@ Memoria en LaTeX.
 Estado actual de la memoria: ch1 tiene objetivos pero contexto/motivación y
 alcance vacíos. ch2 prácticamente completo, solo falta subsección del dataset
 LPMC. ch3 Scrum completo con 9 sprints. ch4 completo (diagrama pipeline PDF,
-TODO para refactorizar LPMC_MODEL_VARIANT como parámetro API). ch5: §5.1 OSRM
-completamente revisado y pulido (29 mayo 2026); §5.2–§5.6 en segunda versión
-pendientes de revisión. ch6 vacío.
+TODO para refactorizar LPMC_MODEL_VARIANT como parámetro API). ch5: §5.1–§5.3
+completamente revisados y pulidos con feedback del tutor (7 jun 2026);
+§5.4–§5.6 pendientes de revisión. ch6 vacío.
 Estado detallado: ESTADO_MEMORIA.md
 
 ---
@@ -95,16 +95,25 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
   en docker-compose. household_id solo para GroupKFold, nunca como feature.
 - Las duraciones de OSRM/OTP se convierten de segundos a horas en el pipeline
   de inferencia para coincidir con las unidades del dataset LPMC.
-- Colores de línea GTFS deterministas por route_id para consistencia visual
+- Colores de línea GTFS deterministas por route_id para consistencia visual.
+  Paleta de 16 colores en ROUTE_COLOR_PALETTE (App.tsx:369). Hash polinómico
+  iterativo con base 31: `hash = hash * 31 + charCode` (mismo que Java
+  String.hashCode()). Índice = abs(hash) % len(PALETTE).
 - Segmentos OTP solo visibles cuando el modo activo incluye transporte público
 - Botones de modo en frontend no son mutex: estado selectedModes: Set<UiMode>.
-  Cada botón hace toggle independiente. toggleMode() en App.tsx.
+  Click normal → selección exclusiva (solo ese modo). Shift+click → toggle
+  aditivo (añade/quita sin afectar los demás). handleModeClick() en App.tsx.
   MapView recibe selectedModes y renderiza una Polyline por perfil activo.
 - vite.config.ts tiene usePolling: true para HMR en Docker sobre Windows
-- Overwrite de variables PT (dur_pt_total, dur_pt_access, dur_pt_bus,
-  dur_pt_rail, pt_n_interchanges) a valor de penalización cuando OTP no
-  devuelve itinerario real, para evitar que el modelo elija PT en trayectos
-  sin servicio real (PENDIENTE de implementar)
+- Manejo PT walk-only (transit_legs_count==0): Plan A activo (10 jun 2026):
+  _build_route_features() inyecta _PT_PENALTY_DURATION_H=10h y
+  _PT_PENALTY_INTERCHANGES=20 en las features PT antes de la inferencia, para
+  que el modelo asigne ~0% a PT por sí solo. Plan B (_apply_pt_suppression:
+  forzar pt=0 post-inferencia y renormalizar) se conserva en el código con las
+  llamadas comentadas como salvavidas. pt_available:bool en model_info.
+- UI rediseñada (8 jun 2026): sidebar-rail izquierdo (64px) + panel expandido
+  (360px) superpuesto al mapa. Tres paneles: Rutas, Red GTFS, Predicción IA.
+  Basemap en panel Capas. Menú contextual clic derecho: establecer origen/destino.
 
 ---
 
@@ -220,3 +229,24 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
 - No uses guiones largos. Usa comas, puntos o dos puntos.
 - \caption arriba en tablas, abajo en figuras
 - El estado actualizado de la memoria está en ESTADO_MEMORIA.md
+
+## Reglas de figuras (feedback del tutor, jun 2026)
+- Toda figura debe ser citada (\ref) en el texto ANTES de que aparezca.
+- El párrafo que la cita contiene la descripción de lo que se ve.
+- El caption debe ser corto y directo: solo el título de la figura, sin
+  descripción adicional. La explicación va en el texto, no en el caption.
+- No usar \newpage hasta la compilación final definitiva.
+
+## Estilo de redacción (feedback del tutor, jun 2026)
+- Usar "Se fijó X a las HH:MM ya que..." en lugar de "Las HH:MM se eligieron por..."
+- Al listar items que se corresponden con un orden, añadir "respectivamente".
+- En bullets de endpoints: incluir siempre el método HTTP y la ruta completa,
+  p.ej. \textbf{Nombre} (\texttt{GET /api/gtfs/stops}).
+- Fórmulas matemáticas: explicar todos los componentes (qué es cada letra,
+  por qué ese valor, qué hace cada operación). No asumir que el lector
+  reconoce el patrón.
+- Para código ilustrativo corto (≤5 líneas), usar \begin{lstlisting} inline
+  (sin float \begin{code}). Para bloques verificables con caption, usar
+  \begin{code}[H].
+- Párrafos de join/cruce de ficheros: cuando hay lógica de base de datos
+  en memoria (pandas joins), detallar la cadena de ficheros explícitamente.

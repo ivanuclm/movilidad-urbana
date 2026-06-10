@@ -61,6 +61,16 @@ _ARTIFACTS_CACHE: dict[str, dict[str, Any]] = {}
 
 ALL_VARIANTS = ["xgb", "rf", "dnn"]
 
+# ── Plan A: penalización de features PT ─────────────────────────────────────
+# Cuando OTP devuelve un itinerario walk-only (transit_legs_count == 0),
+# las features PT se inicializan a estos valores en lugar de 0, para que el
+# modelo asigne por sí mismo una probabilidad muy baja al modo PT.
+# Los valores superan ampliamente el rango del dataset LPMC (viajes urbanos
+# en Londres, máx. ~2 h en PT, raramente >3 intercambios).
+# Ver _apply_pt_suppression() para el Plan B alternativo (post-inferencia).
+_PT_PENALTY_DURATION_H   = 10.0  # horas (>> máximo real en LPMC)
+_PT_PENALTY_INTERCHANGES = 20    # intercambios (>> máximo real)
+
 
 class TorchModalWrapper:
     """Envuelve un modelo PyTorch con la interfaz predict_proba de sklearn.
@@ -326,7 +336,7 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
     inter_waiting = max(otp_total - sum_legs, 0.0)
 
     s2h = 1.0 / 3600.0  # segundos → horas (unidad del dataset LPMC)
-    return {
+    features = {
         "distance": float(driving["distance_m"]),
         "dur_walking": float(foot["duration_s"]) * s2h,
         "dur_cycling": float(cycling["duration_s"]) * s2h,
@@ -338,6 +348,19 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
         "dur_pt_int_walking": inter_walk * s2h,
         "pt_n_interchanges": max(transit_legs_count - 1, 0),
     }
+    pt_available = transit_legs_count > 0
+
+    # Plan A: si no hay servicio PT, penalizar las features para que el modelo
+    # asigne ~0% a PT sin necesidad de post-procesar su salida.
+    if not pt_available:
+        features["dur_pt_access"]      = _PT_PENALTY_DURATION_H
+        features["dur_pt_bus"]         = _PT_PENALTY_DURATION_H
+        features["dur_pt_rail"]        = _PT_PENALTY_DURATION_H
+        features["dur_pt_int_waiting"] = _PT_PENALTY_DURATION_H
+        features["dur_pt_int_walking"] = _PT_PENALTY_DURATION_H
+        features["pt_n_interchanges"]  = _PT_PENALTY_INTERCHANGES
+
+    return features, pt_available
 
 
 def _build_feature_frame(payload: dict, route_features: dict[str, float | int], variant: str | None = None):
@@ -396,6 +419,30 @@ def _build_feature_frame(payload: dict, route_features: dict[str, float | int], 
 
     x = np.array([[float(row[name]) for name in feature_names]], dtype=float)
     return x, feature_names
+
+
+def _apply_pt_suppression(prediction: dict, pt_available: bool) -> dict:
+    """Si no hay servicio de transporte público, fija pt=0 y renormaliza los otros tres modos.
+
+    Cuando OTP no devuelve ningún tramo en tránsito real (itinerario solo a pie),
+    el modo pt se elimina del conjunto de elección activo. Las probabilidades de
+    los modos restantes se renormalizan para sumar 1, preservando las preferencias
+    relativas aprendidas por el modelo entre las alternativas disponibles.
+    """
+    if pt_available:
+        return prediction
+    probs = dict(prediction["probabilities"])
+    probs["pt"] = 0.0
+    total = sum(probs.values())
+    if total > 0:
+        probs = {k: v / total for k, v in probs.items()}
+    predicted_mode = max(probs, key=lambda k: probs[k])
+    return {
+        **prediction,
+        "probabilities": probs,
+        "predicted_mode": predicted_mode,
+        "confidence": probs[predicted_mode],
+    }
 
 
 def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
@@ -507,10 +554,13 @@ async def run_lpmc_inference(body: dict) -> dict:
         "foot": foot,
     }
 
-    route_features = _build_route_features(osrm_results, otp)
+    route_features, pt_available = _build_route_features(osrm_results, otp)
 
     payload = dict(body["user_profile"])
     x, feature_names = _build_feature_frame(payload, route_features)
+    # Plan A activo: features PT ya vienen penalizadas de _build_route_features().
+    # Plan B (salvavidas, desactivado): descomentar para forzar pt=0 post-inferencia.
+    # prediction = _apply_pt_suppression(_predict(x, feature_names), pt_available)
     prediction = _predict(x, feature_names)
 
     artifacts = _load_artifacts()
@@ -528,6 +578,7 @@ async def run_lpmc_inference(body: dict) -> dict:
             ),
             "itinerary_index": otp["itinerary_index"],
             "total_itineraries": otp["total_itineraries"],
+            "pt_available": pt_available,
         },
     }
 
@@ -556,13 +607,15 @@ async def run_lpmc_compare(body: dict) -> dict:
     )
 
     osrm_results = {"driving": driving, "cycling": cycling, "foot": foot}
-    route_features = _build_route_features(osrm_results, otp)
+    route_features, pt_available = _build_route_features(osrm_results, otp)
     payload = dict(body["user_profile"])
 
     results: dict[str, Any] = {}
     for variant in ALL_VARIANTS:
         try:
             x, feature_names = _build_feature_frame(payload, route_features, variant)
+            # Plan B desactivado — ver run_lpmc_inference() para la nota.
+            # results[variant] = _apply_pt_suppression(_predict(x, feature_names, variant), pt_available)
             results[variant] = _predict(x, feature_names, variant)
         except FileNotFoundError:
             results[variant] = None
@@ -573,6 +626,7 @@ async def run_lpmc_compare(body: dict) -> dict:
         "model_info": {
             "itinerary_index": otp["itinerary_index"],
             "total_itineraries": otp["total_itineraries"],
+            "pt_available": pt_available,
         },
     }
 
@@ -609,7 +663,9 @@ async def run_lpmc_debug_features(body: dict) -> dict:
         "cycling": cycling,
         "foot": foot,
     }
-    route_features = _build_route_features(osrm_results, otp)
+    route_features, pt_available = _build_route_features(osrm_results, otp)
     payload = dict(body["user_profile"])
     x, feature_names = _build_feature_frame(payload, route_features)
-    return _build_debug_payload(x, feature_names, otp, route_features)
+    debug = _build_debug_payload(x, feature_names, otp, route_features)
+    debug["model_info"]["pt_available"] = pt_available
+    return debug

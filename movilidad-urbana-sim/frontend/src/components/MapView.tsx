@@ -7,7 +7,7 @@ import {
   CircleMarker,
   Popup,
 } from "react-leaflet";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import L from "leaflet";
 
 const defaultCenter: [number, number] = [39.86251, -4.02726]; // Centro en Toledo
@@ -102,7 +102,6 @@ interface MapViewProps {
   destination: Point;
   setOrigin: (p: Point) => void;
   setDestination: (p: Point) => void;
-  routeGeometry: Point[];
   selectedModes: Set<UiMode>;
   basemap: BasemapMode;
   gtfsStops?: GtfsStop[];
@@ -114,24 +113,49 @@ interface MapViewProps {
   osrmResults?: OsrmResult[];
 }
 
-function ClickHandler({
-  setOrigin,
-  setDestination,
-}: {
-  setOrigin: (p: Point) => void;
-  setDestination: (p: Point) => void;
-}) {
-  const [placingOrigin, setPlacingOrigin] = useState(true);
+type ContextMenuState = { x: number; y: number; lat: number; lng: number } | null;
 
+// Paleta y hash determinista — misma función que en App.tsx
+const ROUTE_PALETTE = [
+  "#f97316","#0ea5e9","#a855f7","#22c55e","#e11d48",
+  "#14b8a6","#facc15","#3b82f6","#ec4899","#10b981",
+  "#f59e0b","#6366f1","#ef4444","#84cc16","#06b6d4","#8b5cf6",
+];
+
+function colorForRoute(routeId: string): string {
+  let h = 0;
+  for (let i = 0; i < routeId.length; i++) h = (h * 31 + routeId.charCodeAt(i)) | 0;
+  return ROUTE_PALETTE[Math.abs(h) % ROUTE_PALETTE.length];
+}
+
+function dedupeRoutes(routes: TransitRouteRef[]): TransitRouteRef[] {
+  const seen = new Set<string>();
+  return routes.filter(r => {
+    const key = r.short_name || r.long_name || r.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function MapInteractionHandler({
+  onContextMenu,
+}: {
+  onContextMenu: (state: ContextMenuState) => void;
+}) {
   useMapEvents({
-    click(e) {
-      const p = { lat: e.latlng.lat, lon: e.latlng.lng };
-      if (placingOrigin) {
-        setOrigin(p);
-      } else {
-        setDestination(p);
-      }
-      setPlacingOrigin(!placingOrigin);
+    click() {
+      onContextMenu(null); // cierra el menú si está abierto
+    },
+    contextmenu(e) {
+      e.originalEvent.preventDefault();
+      e.originalEvent.stopPropagation();
+      onContextMenu({
+        x: e.originalEvent.clientX,
+        y: e.originalEvent.clientY,
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+      });
     },
   });
 
@@ -143,7 +167,6 @@ export function MapView({
   destination,
   setOrigin,
   setDestination,
-  routeGeometry,
   selectedModes,
   basemap,
   gtfsStops,
@@ -177,9 +200,20 @@ export function MapView({
     },
   };
 
-  const osrmPolylinePositions = routeGeometry.map(
-    (p) => [p.lat, p.lon] as [number, number]
-  );
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    // Sin capture: stopPropagation() en el menú previene el cierre al clicar dentro
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
 
   const transitPolylinePositions = (transitShape ?? []).map(
     (p) => [p.lat, p.lon] as [number, number]
@@ -195,31 +229,19 @@ export function MapView({
         }))
       : [];
 
-  // Estilos para la línea principal según modo
-  // let mainRoutePathOptions:
-  //   | L.PathOptions
-  //   | undefined = undefined;
-
-  // if (mode === "driving") {
-  //   mainRoutePathOptions = { color: "#2563eb", weight: 5 };
-  // } else if (mode === "cycling") {
-  //   mainRoutePathOptions = { color: "#16a34a", weight: 4 };
-  // } else if (mode === "foot") {
-  //   mainRoutePathOptions = {
-  //     color: "#4b5563",
-  //     weight: 3,
-  //     dashArray: "6 6",
-  //   };
-  // }
-
   return (
+    <>
     <MapContainer center={defaultCenter} zoom={13} className="map-container">
       <TileLayer
         attribution={basemapConfig[basemap].attribution}
         url={basemapConfig[basemap].url}
       />
 
-      <ClickHandler setOrigin={setOrigin} setDestination={setDestination} />
+      <MapInteractionHandler
+        setOrigin={setOrigin}
+        setDestination={setDestination}
+        onContextMenu={setContextMenu}
+      />
 
       {/* Origen / destino */}
       <Marker position={[origin.lat, origin.lon]} icon={originIcon} />
@@ -289,66 +311,40 @@ export function MapView({
           <CircleMarker
             key={s.id}
             center={[s.lat, s.lon]}
-            radius={4}
+            radius={5}
             pathOptions={{
-              color: "#0f172a",
-              weight: 1.2,
-              fillColor: "#38bdf8",
-              fillOpacity: 0.95,
+              color: "#fff",
+              weight: 1.5,
+              fillColor: "#1a73e8",
+              fillOpacity: 1,
             }}
           >
-            <Popup>
-              <div>
-                <strong>{s.name}</strong>
-                {s.code && <div>Código: {s.code}</div>}
-
+            <Popup minWidth={190} className="stop-popup">
+              <div className="stop-popup__inner">
+                <div className="stop-popup__name">{s.name}</div>
+                {s.code && (
+                  <div className="stop-popup__code">Parada {s.code}</div>
+                )}
                 {s.routes && s.routes.length > 0 && (
-                  <div style={{ marginTop: 4 }}>
-                    <div
-                      style={{
-                        fontWeight: 500,
-                        marginBottom: 2,
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      Líneas:
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "0.25rem",
-                      }}
-                    >
-                      {s.routes.map((r) => {
-                        let label: string;
-
-                        if (r.short_name && r.long_name) {
-                          label = `${r.short_name} - ${r.long_name}`;
-                        } else if (r.short_name) {
-                          label = r.short_name;
-                        } else if (r.long_name) {
-                          label = r.long_name;
-                        } else {
-                          label = r.id;
-                        }
-
-                        return (
-                          <button
-                            key={r.id}
-                            type="button"
-                            className="tooltip-chip"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              onSelectTransitRoute?.(r.id);
-                            }}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-
+                  <div className="stop-popup__routes">
+                    <div className="stop-popup__routes-label">Líneas</div>
+                    <div className="stop-popup__chips">
+                      {dedupeRoutes(s.routes).map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="stop-route-chip"
+                          style={{ background: colorForRoute(r.id) }}
+                          title={r.long_name || r.short_name || r.id}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSelectTransitRoute?.(r.id);
+                          }}
+                        >
+                          {r.short_name || r.id}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -368,5 +364,37 @@ export function MapView({
           />
         ))}
     </MapContainer>
+
+    {/* Menú contextual de clic derecho */}
+    {contextMenu && (
+      <div
+        className="map-context-menu"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="map-context-menu__coords">
+          {contextMenu.lat.toFixed(5)}, {contextMenu.lng.toFixed(5)}
+        </div>
+        <button
+          onClick={() => {
+            setOrigin({ lat: contextMenu.lat, lon: contextMenu.lng });
+            setContextMenu(null);
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="#34a853"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="#34a853" strokeWidth="2"/></svg>
+          Establecer como origen
+        </button>
+        <button
+          onClick={() => {
+            setDestination({ lat: contextMenu.lat, lon: contextMenu.lng });
+            setContextMenu(null);
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="#ea4335"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          Establecer como destino
+        </button>
+      </div>
+    )}
+    </>
   );
 }
