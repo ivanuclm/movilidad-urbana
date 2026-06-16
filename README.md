@@ -240,7 +240,7 @@ official `osrm/osrm-backend` Docker image — no separate download needed.
 
 | Dataset | Source |
 |---|---|
-| Toledo urban GTFS | [NAP — Ministerio de Transportes](https://nap.mitma.es/) |
+| Toledo urban GTFS | [NAP — Ministerio de Transportes](https://nap.transportes.gob.es/Files/Detail/1377) |
 | OSM road network (CLM) | [Geofabrik](https://download.geofabrik.de/europe/spain/castilla-la-mancha.html) |
 | LPMC dataset | Hillel et al. (2018), provided by the thesis supervisor |
 

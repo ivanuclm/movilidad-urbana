@@ -237,7 +237,7 @@ imagen oficial `osrm/osrm-backend` — no hace falta descargar nada aparte.
 
 | Dataset | Fuente |
 |---|---|
-| GTFS urbano de Toledo | [NAP — Ministerio de Transportes](https://nap.mitma.es/) |
+| GTFS urbano de Toledo | [NAP — Ministerio de Transportes](https://nap.transportes.gob.es/Files/Detail/1377) |
 | Red viaria OSM (CLM) | [Geofabrik](https://download.geofabrik.de/europe/spain/castilla-la-mancha.html) |
 | Dataset LPMC | Hillel et al. (2018), proporcionado por el tutor |
 
