@@ -37,6 +37,7 @@ Developed as a Master's thesis project at the University of Castilla-La Mancha
 
 | Requirement | Notes |
 |---|---|
+| [Git](https://git-scm.com/) | Required. |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required. Provides Docker Engine and Compose v2. |
 | [Git LFS](https://git-lfs.com/) | Required to download large data files (models, routing graphs). |
 
@@ -208,8 +209,9 @@ docker compose restart backend
 
 ### Retraining all models from scratch
 
-The full pipeline runs six scripts in sequence. The LPMC dataset is required
-(not redistributable — contact the thesis supervisor).
+The full pipeline runs six scripts in sequence. Python 3.10+ must be installed
+locally. The LPMC dataset is required (not redistributable — contact the
+thesis supervisor).
 
 ```bash
 cd lpmc

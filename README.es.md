@@ -31,6 +31,7 @@ Mancha (ESIIAB, UCLM).
 
 | Requisito | Notas |
 |---|---|
+| [Git](https://git-scm.com/) | Obligatorio. |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Obligatorio. Proporciona Docker Engine y Compose v2. |
 | [Git LFS](https://git-lfs.com/) | Obligatorio para descargar los ficheros grandes (modelos, grafos de enrutado). |
 
@@ -202,8 +203,9 @@ docker compose restart backend
 
 ### Reentrenar todos los modelos desde cero
 
-El pipeline completo ejecuta seis scripts en secuencia. El dataset LPMC es
-necesario (no redistribuible — contacta con el tutor del TFM).
+El pipeline completo ejecuta seis scripts en secuencia. Se requiere Python
+3.10+ instalado localmente. El dataset LPMC es necesario (no redistribuible
+— contacta con el tutor del TFM).
 
 ```bash
 cd lpmc
