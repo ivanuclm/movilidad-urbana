@@ -105,6 +105,16 @@ Ruta*.jpeg
 /*.zip
 lpmc/ConfusionMatrix.png
 
+# ── Internal project files (not for public repo) ──────────────────────────────
+CLAUDE.md
+ESTADO_MEMORIA.md
+INSTRUCCIONES.md
+RUNBOOK.md
+# LaTeX drafts and old chapter versions
+latex/chapters/*_borrador.tex
+latex/chapters/*_OLD.tex
+latex/chapters/*.bak
+
 # ── Nested repos & backups ────────────────────────────────────────────────────
 latex/.git/
 movilidad-urbana-sim/.git/

@@ -3,7 +3,7 @@
 > **Documentación en español:** [README.es.md](./README.es.md)
 
 Web-based simulator for urban mobility scenarios in Toledo, Spain. Computes
-multimodal routes, visualises public transport networks and predicts travel
+multimodal routes, visualises the public transport network and predicts travel
 mode choice using machine learning — all within a single Docker Compose stack.
 
 Developed as a Master's thesis project at the University of Castilla-La Mancha
@@ -24,7 +24,7 @@ Developed as a Master's thesis project at the University of Castilla-La Mancha
 
 - Set an origin and destination by right-clicking on the interactive map.
 - Compute car, cycling and walking routes via three local OSRM instances.
-- Plan public transport journeys using OpenTripPlanner 2.x and the Toledo
+- Plan public transport journeys with OpenTripPlanner 2.x and the Toledo
   urban GTFS feed.
 - Explore bus lines, stops and timetables in the GTFS panel.
 - Run travel mode choice inference with an XGBoost model trained on the
@@ -33,66 +33,79 @@ Developed as a Master's thesis project at the University of Castilla-La Mancha
 
 ---
 
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required. Provides Docker Engine and Compose v2. |
+| [Git LFS](https://git-lfs.com/) | Required to download large data files (models, routing graphs). |
+
+---
+
 ## Quick start
 
-### Requirements
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with
-  Compose v2 support)
-- [Git LFS](https://git-lfs.com/) (to download large model and data files)
-
-### Clone and launch
-
 ```bash
-git lfs install          # one-time setup on your machine
+git lfs install                  # one-time setup — must run BEFORE cloning
 git clone https://github.com/ivanuclm/urban-mobility-sim.git
 cd urban-mobility-sim
 docker compose up --build
 ```
 
-**First run takes ~15–20 minutes** while OSRM builds the routing graphs for
-all three profiles (car, cycling, foot) from the included OSM extract. Every
-subsequent run starts in seconds — the graphs are cached on disk.
+Open **http://127.0.0.1:5173** once all services are ready.
 
-Once all services are ready, open:
+> **First run takes ~15–20 minutes** while OSRM compiles the routing graphs
+> for car, cycling and foot profiles from the included OSM extract. Every
+> subsequent run starts in seconds.
+
+### What `docker compose up` does automatically
+
+1. **`gtfs-init`** — extracts the GTFS zip (from LFS) into the backend data
+   directory. Skipped on re-runs.
+2. **`osrm-setup`** — runs `osrm-extract → osrm-partition → osrm-customize`
+   for each routing profile using the shared OSM PBF (from LFS). Profiles
+   that are already compiled are skipped.
+3. All application services start once the init containers finish.
+
+### If you cloned without Git LFS installed
+
+The large data files will be missing (only LFS pointer files on disk).
+Fix it with:
+
+```bash
+git lfs install
+git lfs pull
+docker compose up --build
+```
+
+---
+
+## Services
 
 | Service | URL |
 |---|---|
-| Simulator | <http://127.0.0.1:5173> |
-| Backend API | <http://127.0.0.1:8000> |
-| API health | <http://127.0.0.1:8000/health> |
-| OpenTripPlanner | <http://127.0.0.1:8080> |
-| OSRM car | <http://127.0.0.1:5000> |
-| OSRM cycling | <http://127.0.0.1:5001> |
-| OSRM foot | <http://127.0.0.1:5002> |
-
-### What happens on first run
-
-The `docker compose up` command orchestrates the following automatically:
-
-1. **`gtfs-init`** — extracts `otp-toledo/GTFS_Urbano_Toledo_2026.zip` (from
-   LFS) to `movilidad-urbana-sim/backend/data/gtfs/`. Skipped on re-runs.
-2. **`osrm-setup`** — runs `osrm-extract → osrm-partition → osrm-customize`
-   for each profile (car, cycling, foot) using the shared OSM PBF from LFS.
-   Profiles that are already compiled are skipped.
-3. All remaining services start once the init containers finish.
+| Simulator | http://127.0.0.1:5173 |
+| Backend API | http://127.0.0.1:8000 |
+| API health | http://127.0.0.1:8000/health |
+| OpenTripPlanner | http://127.0.0.1:8080 |
+| OSRM — car | http://127.0.0.1:5000 |
+| OSRM — cycling | http://127.0.0.1:5001 |
+| OSRM — foot | http://127.0.0.1:5002 |
 
 ---
 
 ## Architecture
 
 The frontend never talks directly to OSRM or OTP — all requests go through
-the FastAPI backend, which acts as an orchestration layer.
+the FastAPI backend, which acts as an orchestration layer with four routers:
 
 ```
 Browser (React + Leaflet)
         │  HTTP
         ▼
-FastAPI backend  ──► OSRM car     (port 5000)
-    /api/osrm        OSRM cycling  (port 5001)
-    /api/otp         OSRM foot     (port 5002)
-    /api/gtfs        OTP           (port 8080)
-    /api/lpmc
+FastAPI backend ──► OSRM car      (port 5000)   /api/osrm
+                    OSRM cycling  (port 5001)   /api/otp
+                    OSRM foot     (port 5002)   /api/gtfs
+                    OTP           (port 8080)   /api/lpmc
 ```
 
 ### Repository layout
@@ -103,52 +116,38 @@ FastAPI backend  ──► OSRM car     (port 5000)
 │   ├── backend/          FastAPI (Python 3.12)
 │   └── frontend/         React + Vite + TypeScript + Leaflet
 ├── osrm-clm/
-│   └── clm.osm.pbf       Castilla-La Mancha OSM extract (Git LFS, ~97 MB)
+│   └── *.osm.pbf         Castilla-La Mancha OSM extract (Git LFS, ~97 MB)
 ├── otp-toledo/
-│   ├── graph.obj          Pre-built OTP graph (Git LFS, ~117 MB)
-│   └── GTFS_Urbano_Toledo_2026.zip  Toledo urban GTFS (Git LFS, ~14 MB)
+│   ├── graph.obj         Pre-built OTP graph (Git LFS, ~117 MB)
+│   └── GTFS_Urbano_Toledo_2026.zip   Toledo urban GTFS (Git LFS, ~14 MB)
 ├── lpmc/
-│   ├── models/            Trained models (Git LFS)
-│   │   ├── xgb_lpmc.joblib        XGBoost — active model (~17 MB)
-│   │   ├── dnn_lpmc.pt            DNN (PyTorch, ~66 KB)
-│   │   └── dnn_lpmc.joblib        DNN wrapper
-│   └── *.py               Training scripts
-├── latex/                 Academic thesis (LaTeX source + compiled PDF)
-├── docker/                Dockerfiles (backend, frontend)
-├── scripts/               Setup helpers (gtfs_extract.py)
+│   ├── models/           Trained models (Git LFS)
+│   └── *.py              Training scripts
+├── latex/                Academic thesis (LaTeX source + compiled PDF)
+├── docker/               Dockerfiles (backend, frontend)
+├── scripts/              Setup helpers
 └── docker-compose.yml
 ```
 
-### Git LFS
+### Files stored in Git LFS
 
-Large binary files are stored in Git LFS (not in the regular git history).
-They are downloaded automatically by `git clone` when LFS is installed. If
-you forgot to install LFS before cloning, run:
-
-```bash
-git lfs install
-git lfs pull
-```
-
-Files tracked via LFS:
+Git LFS stores large binary files outside the regular git history. They are
+downloaded automatically when you clone with LFS installed.
 
 | File | Size | Purpose |
 |---|---|---|
-| `osrm-clm/clm.osm.pbf` | ~97 MB | OSM road network (CLM region) |
+| `osrm-clm/*.osm.pbf` | ~97 MB | OSM road network (CLM region) |
 | `otp-toledo/graph.obj` | ~117 MB | Pre-built OTP routing graph |
 | `otp-toledo/GTFS_Urbano_Toledo_2026.zip` | ~14 MB | Toledo urban GTFS feed |
 | `lpmc/models/xgb_lpmc.joblib` | ~17 MB | XGBoost mode choice model |
-| `lpmc/models/dnn_lpmc.pt` | ~66 KB | DNN mode choice model |
+| `lpmc/models/dnn_lpmc.pt` | ~66 KB | DNN mode choice model (PyTorch) |
 
 ---
 
 ## Travel mode choice models
 
-The `/api/lpmc/predict` endpoint uses the XGBoost model by default
-(`LPMC_MODEL_VARIANT=xgb` in `docker-compose.yml`).
-
-The `/api/lpmc/compare` endpoint runs all three models simultaneously and
-gracefully skips any that are not available.
+`/api/lpmc/predict` uses XGBoost by default. `/api/lpmc/compare` runs all
+available models simultaneously and skips any that are not present.
 
 | Model | File | Included | Notes |
 |---|---|---|---|
@@ -156,28 +155,60 @@ gracefully skips any that are not available.
 | DNN (PyTorch) | `dnn_lpmc.pt` | Yes (LFS) | Used in /compare |
 | Random Forest | `rf_lpmc.joblib` | No | Train locally (see below) |
 
-### Training the Random Forest (optional)
+### Enabling the Random Forest (optional)
 
-The RF model (~600 MB) is excluded from the repository. To enable it for the
-`/compare` endpoint, train it locally:
+The RF model (~600 MB) is excluded from the repository. To enable it:
 
 ```bash
 # Requires the LPMC dataset — contact the project supervisor
 cd lpmc
 python 02_preprocess.py      # generates data/preprocessed/
-python 04_train_rf.py        # writes models/rf_lpmc.joblib (~15 min)
+python 04_train_rf.py        # writes models/rf_lpmc.joblib  (~15 min)
 docker compose restart backend
 ```
 
-If the RF model file is absent, `GET /api/lpmc/compare` returns results for
-XGBoost and DNN only, with no error.
+If the file is absent, `/api/lpmc/compare` returns XGBoost and DNN results
+only — no error.
+
+---
+
+## Troubleshooting
+
+### OSRM graphs corrupted or incomplete
+
+Delete the profile directories and let `docker compose up` rebuild them:
+
+```bash
+# Linux / macOS / Git Bash
+rm -rf osrm-clm/car osrm-clm/bike osrm-clm/foot
+
+# Windows PowerShell
+Remove-Item -Recurse -Force osrm-clm\car, osrm-clm\bike, osrm-clm\foot
+```
+
+Then re-run `docker compose up`. The `osrm-setup` service will recompile
+all three profiles (~15 min).
+
+### GTFS extraction failed
+
+Delete the extracted directory and restart:
+
+```bash
+# Linux / macOS / Git Bash
+rm -rf movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo_2026
+
+# Windows PowerShell
+Remove-Item -Recurse -Force "movilidad-urbana-sim\backend\data\gtfs\GTFS_Urbano_Toledo_2026"
+```
+
+Then re-run `docker compose up`.
 
 ---
 
 ## Rebuilding data (advanced)
 
-The pre-built `graph.obj` and OSRM graphs are sufficient for normal use.
-Rebuild only if you update the OSM extract or GTFS feed.
+The pre-built `graph.obj` and OSRM graphs cover all normal usage. Rebuild
+only if you update the OSM extract or GTFS feed.
 
 ### Rebuild OTP graph
 
@@ -188,14 +219,20 @@ docker run --rm \
   --build --save
 ```
 
-### Rebuild OSRM graphs
-
-Delete the profile directories and re-run `docker compose up`:
+### Rebuild OSRM graphs manually
 
 ```bash
-rm -rf osrm-clm/car osrm-clm/bike osrm-clm/foot
-docker compose up
+# Example for car profile (repeat for bike with bicycle.lua, foot with foot.lua)
+docker run --rm -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest \
+  osrm-extract -p /opt/car.lua /data/clm.osm.pbf
+docker run --rm -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest \
+  osrm-partition /data/clm.osrm
+docker run --rm -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest \
+  osrm-customize /data/clm.osrm
 ```
+
+OSRM profiles (`car.lua`, `bicycle.lua`, `foot.lua`) are bundled in the
+official `osrm/osrm-backend` Docker image — no separate download needed.
 
 ---
 
@@ -207,9 +244,6 @@ docker compose up
 | OSM road network (CLM) | [Geofabrik](https://download.geofabrik.de/europe/spain/castilla-la-mancha.html) |
 | LPMC dataset | Hillel et al. (2018), provided by the thesis supervisor |
 
-OSRM routing profiles (`car.lua`, `bicycle.lua`, `foot.lua`) are the official
-profiles bundled inside the `osrm/osrm-backend` Docker image.
-
 ---
 
 ## Academic context
@@ -217,16 +251,17 @@ profiles bundled inside the `osrm/osrm-backend` Docker image.
 **Title:** Web-based simulator for urban mobility scenarios using Artificial
 Intelligence techniques
 
-**Programme:** Master's Degree in Computer Engineering, ESIIAB-UCLM
+**Programme:** Master's Degree in Computer Engineering, ESIIAB — University
+of Castilla-La Mancha
 
 **Key references:**
 - Hillel et al. (2018) — LPMC dataset
-- Martín-Baos et al. (2023) — ML for travel mode choice (TRC)
+- Martín-Baos et al. (2023) — ML for travel mode choice (Transportation Research Part C)
 - Chen & Guestrin (2016) — XGBoost
 
 ---
 
 ## License
 
-Source code: MIT. Data files distributed under their respective original
+Source code: MIT. Data files are subject to their respective original
 licenses (see Data sources above).
