@@ -1,0 +1,40 @@
+{
+  "source": "03_tune_xgb.ipynb",
+  "cv": 5,
+  "max_evals": 80,
+  "sample_frac": 0.25,
+  "params": {
+    "colsample_bytree": 0.9911780478619544,
+    "gamma": 2.499996019648383,
+    "learning_rate": 0.09258949217113338,
+    "max_depth": 6,
+    "min_child_weight": 17,
+    "n_estimators": 900,
+    "reg_alpha": 0.6836695859198154,
+    "reg_lambda": 0.053597416554023405,
+    "subsample": 0.6206611465973016,
+    "objective": "multi:softprob",
+    "eval_metric": "mlogloss",
+    "num_class": 4,
+    "n_jobs": -1,
+    "random_state": 481516
+  },
+  "scaled_features": [
+    "day_of_week",
+    "start_time_linear",
+    "age",
+    "car_ownership",
+    "distance",
+    "dur_walking",
+    "dur_cycling",
+    "dur_pt_access",
+    "dur_pt_rail",
+    "dur_pt_bus",
+    "dur_pt_int_waiting",
+    "dur_pt_int_walking",
+    "pt_n_interchanges",
+    "dur_driving",
+    "cost_transit",
+    "cost_driving_total"
+  ]
+}

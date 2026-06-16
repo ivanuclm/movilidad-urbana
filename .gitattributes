@@ -1,0 +1,17 @@
+# Git LFS — large binary files
+# After cloning: git lfs pull  (downloads LFS files)
+# First-time setup: docker compose up  (builds OSRM graphs, extracts GTFS)
+
+# ── OSRM source map (single shared PBF for all three profiles) ────────────────
+osrm-clm/clm.osm.pbf             filter=lfs diff=lfs merge=lfs -text
+osrm-clm/castilla-la-mancha*.pbf filter=lfs diff=lfs merge=lfs -text
+
+# ── OTP pre-built graph ───────────────────────────────────────────────────────
+otp-toledo/graph.obj filter=lfs diff=lfs merge=lfs -text
+
+# ── GTFS feed (extracted to backend/data/gtfs/ by docker-compose gtfs-init) ──
+otp-toledo/GTFS_Urbano_Toledo_2026.zip filter=lfs diff=lfs merge=lfs -text
+
+# ── LPMC trained models (active variants only; RF excluded — train locally) ───
+lpmc/models/*.joblib filter=lfs diff=lfs merge=lfs -text
+lpmc/models/*.pt     filter=lfs diff=lfs merge=lfs -text

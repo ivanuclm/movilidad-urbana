@@ -1,0 +1,15 @@
+{
+  "train_cv": {
+    "accuracy": 0.7521271802181783,
+    "gmpca": 0.5121507406234741
+  },
+  "test": {
+    "accuracy": 0.7427051671732523,
+    "gmpca": 0.5036952495574951
+  },
+  "architecture": "Input\u2192BN\u2192Linear(128,relu)\u2192Drop(0.3)\u2192Linear(64,relu)\u2192Drop(0.2)\u2192Linear(32,relu)\u2192Linear(4)",
+  "epochs_trained": 60,
+  "epochs_max": 100,
+  "batch_size": 512,
+  "cv_folds": 5
+}

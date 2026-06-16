@@ -1,0 +1,29 @@
+{
+  "train": {
+    "accuracy": 0.7678304057261804,
+    "gmpca": 0.5446067452430725
+  },
+  "test": {
+    "accuracy": 0.7446048632218845,
+    "gmpca": 0.5164366960525513
+  },
+  "model_params": {
+    "max_depth": 4,
+    "gamma": 3.931781434966718,
+    "min_child_weight": 35,
+    "max_delta_step": 9,
+    "subsample": 0.7667332690572212,
+    "colsample_bytree": 0.9343084611837867,
+    "colsample_bylevel": 0.6514580147153639,
+    "reg_alpha": 0.04829946881115557,
+    "reg_lambda": 0.037112340554694714,
+    "n_estimators": 4809,
+    "learning_rate": 0.01,
+    "objective": "multi:softprob",
+    "eval_metric": "mlogloss",
+    "num_class": 4,
+    "n_jobs": -1,
+    "random_state": 42
+  },
+  "drop_household": true
+}

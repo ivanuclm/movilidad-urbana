@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MapView } from "./components/MapView";
 import "./App.css";
@@ -47,6 +47,8 @@ type TransitRouteRef = {
   id: string;
   short_name?: string;
   long_name?: string;
+  color?: string | null;
+  text_color?: string | null;
 };
 
 type GtfsStop = {
@@ -72,6 +74,13 @@ interface RouteResponse {
   results: RouteResult[];
 }
 
+type TransitRouteVariant = {
+  direction_id?: number | null;
+  headsign?: string | null;
+  stops: (GtfsStop & { sequence: number })[];
+  shape?: Point[];
+};
+
 type TransitRouteDetails = {
   route: {
     id: string;
@@ -83,8 +92,7 @@ type TransitRouteDetails = {
     color?: string | null;
     text_color?: string | null;
   };
-  stops: (GtfsStop & { sequence: number })[];
-  shape?: Point[];
+  variants: TransitRouteVariant[];
 };
 
 type TransitRouteListItem = {
@@ -365,34 +373,21 @@ const MODE_COLORS: Record<UiMode, string> = {
   transit: "#f97316", // naranja
 };
 
-// Paleta para rutas GTFS (colores "aleatorios" pero deterministas por route_id)
-const ROUTE_COLOR_PALETTE = [
-  "#f97316", // naranja
-  "#0ea5e9", // azul claro
-  "#a855f7", // violeta
-  "#22c55e", // verde
-  "#e11d48", // rosa fuerte
-  "#14b8a6", // teal
-  "#facc15", // amarillo
-  "#3b82f6", // azul
-  "#ec4899", // rosa
-  "#10b981", // esmeralda
-  "#f59e0b", // ámbar
-  "#6366f1", // índigo
-  "#ef4444", // rojo
-  "#84cc16", // lima
-  "#06b6d4", // cian
-  "#8b5cf6", // púrpura
-];
+// 26 colores distintos para las 25 líneas únicas del GTFS de Toledo.
+// Todos oscuros suficiente para texto blanco en badges y visibles en el mapa.
+function hslForKey(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(h) % 360}, 70%, 35%)`;
+}
 
-function colorForRouteId(routeId: string | null): string {
-  if (!routeId) return "#f97316";
-  let hash = 0;
-  for (let i = 0; i < routeId.length; i++) {
-    hash = (hash * 31 + routeId.charCodeAt(i)) | 0;
-  }
-  const idx = Math.abs(hash) % ROUTE_COLOR_PALETTE.length;
-  return ROUTE_COLOR_PALETTE[idx];
+function routeColor(r: { color?: string | null; short_name?: string | null; id: string }): string {
+  if (r.color) return `#${r.color}`;
+  return hslForKey(r.short_name || r.id);
+}
+
+function routeTextColor(r: { text_color?: string | null }): string {
+  return r.text_color ? `#${r.text_color}` : 'white';
 }
 
 function linearHourToTimeString(hour: number): string {
@@ -410,6 +405,18 @@ function timeStringToLinearHour(value: string): number {
   return h + m / 60;
 }
 
+function groupByHour(departures: string[]): [string, string[]][] {
+  const map = new Map<string, string[]>();
+  for (const t of departures) {
+    const parts = t.split(':');
+    const hour = parts[0].padStart(2, '0');
+    const min = (parts[1] || '00');
+    if (!map.has(hour)) map.set(hour, []);
+    map.get(hour)!.push(min);
+  }
+  return [...map.entries()];
+}
+
 function App() {
   const [origin, setOrigin] = useState<Point>({ lat: 39.87029, lon: -4.03434 });
   const [destination, setDestination] = useState<Point>({
@@ -425,6 +432,8 @@ function App() {
   const [selectedTransitRouteId, setSelectedTransitRouteId] = useState<
     string | null
   >(null);
+  const [highlightedStopId, setHighlightedStopId] = useState<string | null>(null);
+  const [flyTarget, setFlyTarget] = useState<Point | null>(null);
 
   // Fecha por defecto = última fecha válida del feed GTFS activo (22/05/2026).
   // El feed cubre 22/02/2026–22/05/2026; fuera de ese rango el backend devuelve vacío.
@@ -509,7 +518,6 @@ function App() {
       mainTransitSegment.route_id
     : null;
 
-  const transitRouteColor = colorForRouteId(selectedTransitRouteId ?? null);
 
   // ------------- GTFS: paradas -------------
 
@@ -535,35 +543,54 @@ function App() {
     },
   });
 
+
   // ------------- GTFS: detalles de la ruta seleccionada -------------
+  // El GTFS de Toledo no tiene direction_id: cada sentido es un route_id distinto
+  // con el mismo short_name (p.ej. L5 → 50011 y 50012). Los "hermanos" son todos
+  // los route_id que comparten short_name con el seleccionado.
+  const selectedRouteShortName = gtfsRoutesQuery.data?.find(r => r.id === selectedTransitRouteId)?.short_name;
+  const siblingRouteIds: string[] = selectedRouteShortName
+    ? (gtfsRoutesQuery.data?.filter(r => r.short_name === selectedRouteShortName).map(r => r.id) ?? [])
+    : (selectedTransitRouteId ? [selectedTransitRouteId] : []);
+  // El índice activo se deriva de dónde cae selectedTransitRouteId en los hermanos.
+  // Así, clicar un chip de parada (que conoce el route_id exacto) muestra el sentido correcto.
+  const selectedVariantIndex = selectedTransitRouteId
+    ? Math.max(0, siblingRouteIds.indexOf(selectedTransitRouteId))
+    : 0;
+  const activeRouteId = selectedTransitRouteId;
 
   const transitRouteDetailsQuery = useQuery<TransitRouteDetails>({
-    queryKey: ["gtfs-route-details", selectedTransitRouteId],
-    enabled: !!selectedTransitRouteId,
+    queryKey: ["gtfs-route-details", activeRouteId],
+    enabled: !!activeRouteId,
     queryFn: async () => {
       const res = await fetch(
-        `${API_BASE_URL}/api/gtfs/routes/${selectedTransitRouteId}`
+        `${API_BASE_URL}/api/gtfs/routes/${activeRouteId}`
       );
       if (!res.ok) throw new Error("Error cargando detalles de ruta GTFS");
       return res.json();
     },
   });
 
-  const transitShape = transitRouteDetailsQuery.data?.shape ?? [];
-  const transitRouteStops = transitRouteDetailsQuery.data?.stops ?? [];
+  // Toledo GTFS: cada route_id tiene un único direction_id (variants[0] siempre)
+  const selectedVariant = transitRouteDetailsQuery.data?.variants[0];
+  const transitShape = selectedVariant?.shape ?? [];
+  const transitRouteStops = selectedVariant?.stops ?? [];
+  const transitRouteColor = transitRouteDetailsQuery.data
+    ? routeColor(transitRouteDetailsQuery.data.route)
+    : hslForKey(activeRouteId ?? '');
 
   // ------------- GTFS: horarios de la ruta seleccionada -------------
 
   const transitScheduleQuery = useQuery<TransitRouteSchedule>({
-    queryKey: ["gtfs-route-schedule", selectedTransitRouteId, scheduleDate],
-    enabled: !!selectedTransitRouteId,
+    queryKey: ["gtfs-route-schedule", activeRouteId, scheduleDate],
+    enabled: !!activeRouteId,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scheduleDate) {
         params.set("date", scheduleDate);
       }
       const res = await fetch(
-        `${API_BASE_URL}/api/gtfs/routes/${selectedTransitRouteId}/schedule?${params.toString()}`
+        `${API_BASE_URL}/api/gtfs/routes/${activeRouteId}/schedule?${params.toString()}`
       );
       if (!res.ok) throw new Error("Error cargando horarios GTFS");
       return res.json();
@@ -583,14 +610,16 @@ function App() {
   const uniqueRoutes = (() => {
     if (!gtfsRoutesQuery.data) return [];
     const seen = new Set<string>();
-    return gtfsRoutesQuery.data.filter(r => {
+    const routes = gtfsRoutesQuery.data.filter(r => {
       const key = r.short_name || r.long_name || r.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
+    return routes.sort((a, b) =>
+      (a.short_name || a.id).localeCompare(b.short_name || b.id, undefined, { numeric: true })
+    );
   })();
-  const selectedRouteShortName = gtfsRoutesQuery.data?.find(r => r.id === selectedTransitRouteId)?.short_name;
   const filteredRoutes = routeFilter.trim()
     ? uniqueRoutes.filter(r => {
         const q = routeFilter.toLowerCase();
@@ -598,6 +627,15 @@ function App() {
           || (r.long_name || '').toLowerCase().includes(q);
       })
     : uniqueRoutes;
+
+  const routeSiblingsByShortName = new Map<string, string[]>();
+  if (gtfsRoutesQuery.data) {
+    for (const r of gtfsRoutesQuery.data) {
+      const key = r.short_name || r.id;
+      if (!routeSiblingsByShortName.has(key)) routeSiblingsByShortName.set(key, []);
+      routeSiblingsByShortName.get(key)!.push(r.id);
+    }
+  }
 
   return (
     <div className="app-root">
@@ -616,13 +654,17 @@ function App() {
             transitShape={transitShape}
             transitRouteStops={transitRouteStops}
             transitRouteColor={transitRouteColor}
-            onSelectTransitRoute={(routeId) => {
+            onSelectTransitRoute={(routeId, fromStopId) => {
               setSelectedTransitRouteId(routeId);
+              setHighlightedStopId(fromStopId ?? null);
               setActivePanel('gtfs');
             }}
             transitSegments={
               selectedModes.has("transit") ? transitResult?.segments ?? [] : []
             }
+            flyTarget={flyTarget}
+            onFlyDone={() => setFlyTarget(null)}
+            highlightedStopId={highlightedStopId ?? undefined}
       />
 
       {/* Sidebar */}
@@ -851,12 +893,18 @@ function App() {
               {/* ════ GTFS ════ */}
               {activePanel === 'gtfs' && (
                 <>
+                  {/* Controles siempre visibles */}
                   <label className="stops-toggle">
                     <input type="checkbox" checked={showGtfsStops} onChange={(e) => setShowGtfsStops(e.target.checked)} />
                     Mostrar paradas en el mapa
                   </label>
+                  <div className="field-block" style={{ marginBottom: '2px' }}>
+                    <span className="field-label">Fecha horarios</span>
+                    <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+                  </div>
+                  <p style={{ fontSize: '.7rem', color: '#9aa0a6', marginBottom: '10px' }}>Feed: 22/02/2026 – 22/05/2026</p>
 
-                  {/* Buscador de líneas */}
+                  {/* Buscador */}
                   <div style={{ marginBottom: '10px', position: 'relative' }}>
                     <input
                       type="text"
@@ -873,86 +921,131 @@ function App() {
                   {gtfsRoutesQuery.isLoading && <p style={{ fontSize: '.78rem', color: '#9aa0a6' }}>Cargando líneas…</p>}
                   {gtfsRoutesQuery.error && <p className="error-text">Error cargando rutas.</p>}
 
-                  {/* Lista de tarjetas de línea */}
-                  <div className="route-list">
+                  {/* Lista acordeón */}
+                  <div className="gtfs-accordion">
                     {filteredRoutes.map(r => {
-                      const color = colorForRouteId(r.id);
-                      const isSelected = r.id === selectedTransitRouteId ||
-                        (!!r.short_name && r.short_name === selectedRouteShortName);
+                      const color = routeColor(r);
+                      const key = r.short_name || r.id;
+                      const siblings = routeSiblingsByShortName.get(key) ?? [r.id];
+                      const hasVariants = siblings.length > 1;
+                      const isOpen = !!selectedRouteShortName
+                        ? r.short_name === selectedRouteShortName
+                        : r.id === selectedTransitRouteId;
+
                       return (
-                        <button
-                          key={r.id}
-                          type="button"
-                          className={`route-card${isSelected ? ' route-card--active' : ''}`}
-                          onClick={() => setSelectedTransitRouteId(isSelected ? null : r.id)}
-                        >
-                          <span className="route-card__badge" style={{ background: color }}>
-                            {r.short_name || r.id}
-                          </span>
-                          <span className="route-card__name">{r.long_name || ''}</span>
-                        </button>
+                        <div key={r.id} className={`gtfs-line${isOpen ? ' gtfs-line--open' : ''}`}>
+                          <button
+                            className="gtfs-line-header"
+                            onClick={() => {
+                              if (isOpen) {
+                                setSelectedTransitRouteId(null);
+                                setHighlightedStopId(null);
+                              } else {
+                                setSelectedTransitRouteId(siblings[0]);
+                                setHighlightedStopId(null);
+                              }
+                            }}
+                          >
+                            <span className="gtfs-line-badge" style={{ background: color, color: routeTextColor(r) }}>{r.short_name || r.id}</span>
+                            <span className="gtfs-line-name">{r.long_name || ''}</span>
+                            {hasVariants && (
+                              <svg className={`gtfs-chevron${isOpen ? ' gtfs-chevron--open' : ''}`} viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M6 9l6 6 6-6"/>
+                              </svg>
+                            )}
+                          </button>
+
+                          {isOpen && (
+                            <div className="gtfs-line-body">
+                              {/* Sub-trayectos */}
+                              {hasVariants && (
+                                <div className="gtfs-variant-list">
+                                  {siblings.map(rid => {
+                                    const info = gtfsRoutesQuery.data?.find(r2 => r2.id === rid);
+                                    const active = activeRouteId === rid;
+                                    return (
+                                      <button
+                                        key={rid}
+                                        className={`gtfs-variant-item${active ? ' gtfs-variant-item--active' : ''}`}
+                                        style={{ borderLeftColor: active ? color : '#e8eaed' }}
+                                        onClick={() => setSelectedTransitRouteId(rid)}
+                                      >
+                                        <span className="gtfs-variant-dot" style={{ background: active ? color : '#9aa0a6' }} />
+                                        <span>{info?.long_name || rid}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {transitRouteDetailsQuery.isFetching && (
+                                <p style={{ fontSize: '.75rem', color: '#9aa0a6', padding: '6px 12px' }}>Cargando paradas…</p>
+                              )}
+
+                              {/* Diagrama de paradas */}
+                              {transitRouteStops.length > 0 && (
+                                <div className="stop-diagram" style={{ '--route-color': color } as React.CSSProperties}>
+                                  <div className="stop-diagram-title">{transitRouteStops.length} paradas</div>
+                                  {transitRouteStops.map((stop, idx) => {
+                                    const isFirst = idx === 0;
+                                    const isLast = idx === transitRouteStops.length - 1;
+                                    const isHighlighted = stop.id === highlightedStopId;
+                                    const isTerminal = isFirst || isLast;
+                                    return (
+                                      <div key={stop.id} className={`stop-row${isHighlighted ? ' stop-row--hl' : ''}`}>
+                                        <div className="stop-row__track">
+                                          <div className={`stop-row__seg${isFirst ? ' stop-row__seg--none' : ''}`} />
+                                          <div className={`stop-row__dot${isTerminal ? ' stop-row__dot--terminal' : ''}${isHighlighted ? ' stop-row__dot--hl' : ''}`} />
+                                          <div className={`stop-row__seg${isLast ? ' stop-row__seg--none' : ''}`} />
+                                        </div>
+                                        <button className="stop-row__label" onClick={() => setFlyTarget({ lat: stop.lat, lon: stop.lon })}>
+                                          {stop.name}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Horarios */}
+                              {transitScheduleQuery.isLoading && <p style={{ fontSize: '.75rem', color: '#9aa0a6', padding: '6px 12px' }}>Cargando horarios…</p>}
+                              {transitScheduleQuery.data && (
+                                transitScheduleQuery.data.directions.length === 0
+                                  ? <p style={{ fontSize: '.8rem', color: '#5f6368', padding: '6px 12px' }}>No hay servicios para esta fecha.</p>
+                                  : <div className="gtfs-schedule">
+                                      <div className="gtfs-schedule-title">Salidas</div>
+                                      {transitScheduleQuery.data.directions.map((dir, didx) => {
+                                        const hourRows = groupByHour(dir.departures);
+                                        return (
+                                          <div key={didx} className="gtfs-schedule-section">
+                                            {transitScheduleQuery.data!.directions.length > 1 && (
+                                              <div className="gtfs-schedule-dir">{dir.headsign || `Dirección ${didx + 1}`}</div>
+                                            )}
+                                            <div className="gtfs-schedule-meta">{dir.trip_count} viajes · {stripSeconds(dir.first_departure)} – {stripSeconds(dir.last_departure)}</div>
+                                            <table className="gtfs-schedule-table">
+                                              <tbody>
+                                                {hourRows.map(([hour, mins]) => (
+                                                  <tr key={hour}>
+                                                    <td className="gtfs-hour">{hour}</td>
+                                                    <td className="gtfs-mins">{mins.join(' ')}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                     {filteredRoutes.length === 0 && routeFilter && (
                       <p style={{ fontSize: '.78rem', color: '#9aa0a6', textAlign: 'center', padding: '12px 0' }}>Sin resultados</p>
                     )}
                   </div>
-
-                  {transitRouteDetailsQuery.data && (
-                    <p style={{ fontSize: '.82rem', marginBottom: '10px', paddingTop: '8px', borderTop: '1px solid #f1f3f4' }}>
-                      <strong>
-                        {transitRouteDetailsQuery.data.route.short_name ||
-                          transitRouteDetailsQuery.data.route.long_name ||
-                          transitRouteDetailsQuery.data.route.id}
-                      </strong>{' — '}{transitRouteStops.length} paradas
-                    </p>
-                  )}
-
-                  {selectedTransitRouteId && (
-                    <>
-                      <div className="field-block" style={{ marginBottom: '4px' }}>
-                        <span className="field-label">Fecha</span>
-                        <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
-                      </div>
-                      <p style={{ fontSize: '.72rem', color: '#9aa0a6', marginBottom: '10px' }}>
-                        Feed válido: 22/02/2026 – 22/05/2026
-                      </p>
-
-                      {transitScheduleQuery.isLoading && <p style={{ fontSize: '.8rem', color: '#9aa0a6' }}>Cargando horarios...</p>}
-                      {transitScheduleQuery.error && <p className="error-text">Error cargando horarios.</p>}
-
-                      {transitScheduleQuery.data && (
-                        transitScheduleQuery.data.directions.length === 0
-                          ? <p style={{ fontSize: '.82rem', color: '#5f6368' }}>No hay servicios para esta fecha.</p>
-                          : <div>
-                              {transitScheduleQuery.data.directions.map((dir, idx) => {
-                                const sample = dir.departures.slice(0, 10);
-                                const remaining = dir.departures.length - sample.length;
-                                return (
-                                  <div key={dir.direction_id ?? idx} style={{ marginBottom: '10px', padding: '9px 12px', borderRadius: '8px', background: '#f8f9fa', border: '1px solid #e8eaed' }}>
-                                    <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '.82rem' }}>
-                                      Sentido {dir.headsign || (dir.direction_id != null && `(dir. ${dir.direction_id})`) || ''}
-                                    </div>
-                                    <div style={{ fontSize: '.75rem', color: '#5f6368', marginBottom: '4px' }}>
-                                      {dir.trip_count} viajes · {stripSeconds(dir.first_departure)} → {stripSeconds(dir.last_departure)}
-                                    </div>
-                                    <div style={{ fontSize: '.75rem', color: '#3c4043' }}>
-                                      {sample.map(t => stripSeconds(t)).join(' · ')}
-                                      {remaining > 0 && ` … +${remaining} más`}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                      )}
-
-                      {transitRouteDetailsQuery.data && (
-                        <p style={{ fontSize: '.72rem', color: '#9aa0a6', marginTop: '6px' }}>
-                          Selecciona otra ruta desde el mapa o el desplegable.
-                        </p>
-                      )}
-                    </>
-                  )}
                 </>
               )}
 

@@ -93,12 +93,24 @@
   - GET /api/gtfs/routes
   - GET /api/gtfs/routes/{route_id}
   - GET /api/gtfs/routes/{route_id}/schedule?date=YYYY-MM-DD
-- §5.3.3: Coloración determinista de líneas
-  - Hash polinómico explicado paso a paso: ord(), 31 prima, abs(), módulo
-  - Paleta ampliada a 16 colores en App.tsx (ROUTE_COLOR_PALETTE)
-  - lstlisting Python con PALETTE abreviada ["#f97316", "#0ea5e9", ..., "#06b6d4", "#8b5cf6"]
-  - Párrafo previo a fig:gtfs_paradas con descripción de la interfaz
-  - fig:gtfs_paradas: PENDIENTE captura
+- §5.3.3: Coloración determinista de líneas — NECESITA REESCRITURA (11 jun 2026)
+  El .tex actual describe hash polinómico + paleta 16 colores: OBSOLETO.
+  No modificar el .tex hasta confirmar con Iván.
+
+  PROPUESTA NUEVO CONTENIDO:
+  - Párrafo 1 — Problema del hash: con 16 colores y 25 líneas las colisiones son
+    inevitables (problema del cumpleaños: P(colisión) > 99%). Se descarta el hash.
+  - Párrafo 2 — Solución: short_names únicos ordenados alfabéticamente → índice i →
+    LINE_COLORS[i]. Paleta de 26 colores (todos oscuros suficiente para texto blanco).
+    Con 25 líneas y 26 colores: unicidad garantizada.
+  - Párrafo 3 — Implementación en React: routeColorMap (Map<string,string>) computado
+    al cargarse gtfsRoutesQuery.data. Fallback hash mientras carga. Mapa pasado como
+    prop colorMap a MapView para consistencia en chips de parada.
+  - lstlisting TypeScript (5 líneas):
+      const keys = [...new Set(data.map(r => r.short_name || r.id))].sort();
+      keys.forEach((k, i) => map.set(k, LINE_COLORS[i % LINE_COLORS.length]));
+  - Párrafo previo a fig:gtfs_paradas describiendo la interfaz NUEVA (acordeón)
+  - fig:gtfs_paradas: PENDIENTE captura (acordeón abierto + diagrama de paradas)
 
 ### §5.4 Backend — NOTAS DETALLADAS (10 jun 2026, pendiente de redactar)
 
@@ -284,10 +296,31 @@ Lo que ya tiene sección propia NO se repite aquí, solo se referencia:
   de transit real (naranja, #f97316, grosor 5).
 - Solo se renderizan si selectedModes.has("transit").
 
-#### Coloración de líneas GTFS
-- CUBIERTO EN §5.3.3 (hash polinómico, paleta 16 colores, lstlisting Python).
-  En §5.5 solo añadir referencia cruzada: "el color de cada línea se determina
-  según el algoritmo descrito en §5.3.3".
+#### Coloración de líneas GTFS (actualizado 11 jun 2026)
+- §5.3.3 se reescribirá con el nuevo mecanismo (índice por orden alfabético,
+  paleta LINE_COLORS 26 colores). En §5.5 solo referencia cruzada al igual que antes.
+- CRITERIO: §5.3.3 documenta el algoritmo de asignación de color.
+  §5.5 documenta cómo se usa en la UI (badge, chip, diagrama de paradas).
+
+#### Panel Red GTFS — rediseño completo (11 jun 2026)
+- Estructura del panel: fecha de horarios + checkbox arriba (siempre visibles),
+  buscador de línea, lista acordeón.
+- Acordeón: agrupa las rutas por short_name (ej. L1 con 3 route_ids aparece como
+  un ítem con chevron). Al expandir: sub-lista de route_ids hermanos con borde lateral
+  del color de la línea en el activo. Clic en hermano cambia activeRouteId.
+- Diagrama de paradas (stop-diagram): columna izquierda con línea vertical coloreada
+  (var(--route-color)) y tres tipos de puntos:
+    - stop-row__dot--terminal: relleno sólido (primera y última parada)
+    - stop-row__dot: hueco con borde (paradas intermedias)
+    - stop-row__dot--hl: azul #1a73e8 con halo (parada desde la que se navegó)
+  Clic en nombre de parada → setFlyTarget → FlyToHandler → map.flyTo(zoom 17).
+- Tabla de horarios: agrupada por hora con groupByHour(). Cada fila: HH | MM MM MM.
+  Solo se muestran las horas con servicio. Coloreado alternado por fila.
+- highlightedStopId: estado en App.tsx. Se fija al hacer clic en un chip de parada
+  en MapView (onSelectTransitRoute ahora recibe (routeId, fromStopId?)). Se limpia al
+  abrir manualmente una línea desde el acordeón.
+- FlyToHandler: componente dentro de MapContainer que ejecuta map.flyTo() cuando
+  flyTarget (Point | null) cambia, y llama onFlyDone() para limpiar el estado.
 
 #### Basemaps disponibles
 - light: CartoDB Positron (limpio, sin ruido visual, recomendado)
@@ -424,6 +457,39 @@ heterogeneidad entre viajeros.
 - ch2_pipeline2.png: disponible, comentada (anotada para ch1)
 - fig_pipeline_osrm.svg: disponible en latex/figs/ (pendiente de usar o comentar)
 
+## Sprint 12 — Rediseño panel GTFS y correcciones (11 jun 2026)
+
+### Cambios en el código
+- **GTFS — Modelo de datos corregido**: El GTFS de Toledo NO tiene `direction_id` en
+  trips.txt. Cada sentido es un route_id distinto con el mismo short_name. El frontend
+  agrupa "hermanos" (siblingRouteIds). selectedVariantIndex pasa a ser DERIVADO:
+  `Math.max(0, siblingRouteIds.indexOf(selectedTransitRouteId))`. Elimina el estado
+  selectedVariantIndex y el useEffect de reset. Clic en chip de parada pasa el
+  route_id exacto → sentido correcto sin lógica adicional. (App.tsx)
+- **GTFS — Colores únicos**: LINE_COLORS (26 colores) + routeColorMap por índice
+  alfabético sobre short_names. Elimina hash como mecanismo principal. colorMap
+  pasado a MapView como prop. (App.tsx, MapView.tsx)
+- **GTFS — Panel rediseñado completamente**:
+  - Acordeón agrupado por short_name (antes: lista plana de route_cards)
+  - Líneas con varios route_id muestran chevron + sub-lista con borde lateral coloreado
+  - Diagrama de paradas estilo cartel: línea vertical del color de la línea, puntos
+    terminales rellenos, intermedios huecos, parada resaltada en azul con halo
+  - Tabla de horarios agrupada por hora (columna HH | minutos)
+  - Fecha de horarios al inicio del panel, siempre visible
+  - flyTarget + FlyToHandler: clic en parada → map.flyTo(stop, 17) (MapView.tsx)
+  - highlightedStopId: parada resaltada si la selección viene de chip de popup
+  - onSelectTransitRoute ahora recibe (routeId, fromStopId?) (MapView.tsx)
+  - interactive: false en CircleMarker de transitRouteStops (fix: bloqueaban clicks)
+  (App.tsx, App.css, MapView.tsx)
+
+### Impacto en la memoria
+- §5.3.3 queda OBSOLETO en su totalidad. Ver propuesta de nuevo contenido arriba.
+- §5.5 necesitará añadir subsección del panel GTFS rediseñado (diagrama de paradas,
+  acordeón, flyTo). Ver notas §5.5 actualizadas abajo.
+- fig:gtfs_paradas: pendiente captura con la nueva interfaz (acordeón abierto).
+
+---
+
 ## Sprint 11 — Mejora de interfaz y correcciones (jun 2026)
 Cambios implementados (8 jun 2026):
 - **Rediseño UI completo**: sidebar-rail izquierdo (64px, siempre visible) +
@@ -453,23 +519,24 @@ y Plan B (_apply_pt_suppression, salvavidas comentado).
 
 ## Próximo trabajo previsto (UI)
 - Clic derecho: ✅ HECHO
+- Panel GTFS rediseñado: ✅ HECHO (Sprint 12)
+- Colores únicos GTFS: ✅ HECHO (Sprint 12)
 - Mejor satellite basemap (probar ESRI Clarity o Mapbox)
-- Mejor popup de paradas GTFS (más info, horarios inline)
-- Agrupación de líneas duplicadas por nombre en selector GTFS
 - Controles de mapa (zoom) reposicionados
 - Botón limpiar rutas
 
 ## Próximo trabajo previsto (memoria)
 1. PAUSA para completar UI antes de capturas definitivas
-   — capturas pendientes: fig:otp_itinerario, fig:gtfs_paradas, fig:fastapi_docs,
+   — capturas pendientes: fig:otp_itinerario, fig:gtfs_paradas (nueva UI), fig:fastapi_docs,
      fig:app_general y fig:panel_comparacion
-2. §5.4 Backend: revisar + añadir explicación Google Encoded Polyline
-3. §5.5 Frontend: revisar + actualizar botones toggle
-4. §5.6 ML: redactar con tutor
-5. Subsección dataset LPMC en ch2
-6. ch1 contexto/motivación y alcance
-7. ch6 conclusiones y trabajo futuro
-8. Generar figuras: arch_general, arch_docker
+2. **§5.3.3**: reescribir con mecanismo nuevo (índice + LINE_COLORS). PENDIENTE CONFIRMACIÓN.
+3. §5.4 Backend: revisar + añadir explicación Google Encoded Polyline
+4. §5.5 Frontend: revisar + bloque panel GTFS rediseñado + coloración
+5. §5.6 ML: redactar con tutor
+6. Subsección dataset LPMC en ch2
+7. ch1 contexto/motivación y alcance
+8. ch6 conclusiones y trabajo futuro
+9. Generar figuras: arch_general, arch_docker
 
 ## Límites formales
 - Máximo 80 páginas (ch1 → fin conclusiones, sin portada/índices/biblio/anexos)

@@ -1,0 +1,52 @@
+{
+  "purpose": {
+    "categories": [
+      "B",
+      "HBE",
+      "HBO",
+      "HBW",
+      "NHBO"
+    ],
+    "category_to_code": {
+      "B": 0,
+      "HBE": 1,
+      "HBO": 2,
+      "HBW": 3,
+      "NHBO": 4
+    }
+  },
+  "fueltype": {
+    "categories": [
+      "Average_Car",
+      "Diesel_Car",
+      "Diesel_LGV",
+      "Hybrid_Car",
+      "Petrol_Car",
+      "Petrol_LGV"
+    ],
+    "category_to_code": {
+      "Average_Car": 0,
+      "Diesel_Car": 1,
+      "Diesel_LGV": 2,
+      "Hybrid_Car": 3,
+      "Petrol_Car": 4,
+      "Petrol_LGV": 5
+    }
+  },
+  "faretype": {
+    "categories": [
+      "16+",
+      "child",
+      "dis",
+      "free",
+      "full"
+    ],
+    "category_to_code": {
+      "16+": 0,
+      "child": 1,
+      "dis": 2,
+      "free": 3,
+      "full": 4
+    }
+  }
+}

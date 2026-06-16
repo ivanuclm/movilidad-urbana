@@ -1,216 +1,232 @@
-# Simulador de Movilidad Urbana para Toledo
+# Urban Mobility Simulator for Toledo
 
-Repositorio principal del TFM y de la aplicación desarrollada en él. El proyecto integra una interfaz web cartográfica, un backend de orquestación, motores locales de enrutado y un bloque de modelado de elección modal para analizar alternativas de viaje en el entorno urbano de Toledo.
+> **Documentación en español:** [README.es.md](./README.es.md)
 
-Aplicación web desarrollada como Trabajo Fin de Máster para comparar rutas multimodales, explorar transporte público urbano y ejecutar inferencia de elección modal sobre escenarios de movilidad urbana.
+Web-based simulator for urban mobility scenarios in Toledo, Spain. Computes
+multimodal routes, visualises public transport networks and predicts travel
+mode choice using machine learning — all within a single Docker Compose stack.
+
+Developed as a Master's thesis project at the University of Castilla-La Mancha
+(ESIIAB, UCLM).
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-Frontend-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-UI-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Leaflet](https://img.shields.io/badge/Leaflet-Mapa-199900?logo=leaflet&logoColor=white)
-![OSRM](https://img.shields.io/badge/OSRM-Routing-EA4335?logo=OpenStreetMap&logoColor=white)
-![OTP](https://img.shields.io/badge/OpenTripPlanner-Transit-6A1B9A?logo=OsmAnd&logoColor=white)
-![LaTeX](https://img.shields.io/badge/LaTeX-Memoria-008080?logo=latex&logoColor=white)
+![Leaflet](https://img.shields.io/badge/Leaflet-Map-199900?logo=leaflet&logoColor=white)
 
-[Qué hace la aplicación](#qué-hace-la-aplicación) ·
-[Arquitectura general](#arquitectura-general) ·
-[Puesta en marcha](#puesta-en-marcha) ·
-[Datos necesarios](#datos-necesarios) ·
-[Fuentes de datos](#fuentes-de-datos-y-referencias)
+![Simulator main view](docs/app-preview.png)
 
-![Vista principal del simulador](docs/app-preview.png)
+---
 
+## Features
 
-## Qué hace la aplicación
+- Set an origin and destination by right-clicking on the interactive map.
+- Compute car, cycling and walking routes via three local OSRM instances.
+- Plan public transport journeys using OpenTripPlanner 2.x and the Toledo
+  urban GTFS feed.
+- Explore bus lines, stops and timetables in the GTFS panel.
+- Run travel mode choice inference with an XGBoost model trained on the
+  London Passenger Mode Choice (LPMC) dataset, and optionally compare with
+  a Random Forest and a DNN.
 
-La aplicación permite:
+---
 
-- seleccionar origen y destino sobre un mapa interactivo;
-- calcular rutas para coche, bicicleta y desplazamientos a pie mediante OSRM;
-- consultar itinerarios de transporte público urbano mediante OpenTripPlanner y GTFS;
-- visualizar rutas, segmentos y paradas sobre el mapa;
-- seleccionar modelos entrenados, introducir manualmente variables explicativas o utilizar perfiles preconfigurados y ejecutar inferencia modal para estimar con qué probabilidad se elegiría cada alternativa de transporte en un trayecto concreto;
-- generar y analizar grandes volúmenes de ejemplos y escenarios de movilidad para detectar patrones espaciales y de comportamiento, incluyendo visualizaciones agregadas sobre el mapa.
+## Quick start
 
-## Arquitectura general
+### Requirements
 
-El proyecto se organiza en los siguientes bloques:
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with
+  Compose v2 support)
+- [Git LFS](https://git-lfs.com/) (to download large model and data files)
 
-- `movilidad-urbana-sim/`: aplicación web del simulador.
-  - `frontend/`: React + Vite + Leaflet.
-  - `backend/`: FastAPI como capa de orquestación y API propia.
-- `osrm-clm/`: datasets locales preparados para OSRM por perfil.
-- `otp-toledo/`: datos y grafo local de OpenTripPlanner.
-- `lpmc/`: scripts, modelos y artefactos del bloque de elección modal.
-- `latex/`: memoria académica y figuras del TFM.
-- `docker/` y `docker-compose.yml`: infraestructura de contenedores para levantar el sistema completo.
+### Clone and launch
 
-## Puesta en marcha
-
-Desde `F:/TFM`:
-
-```powershell
+```bash
+git lfs install          # one-time setup on your machine
+git clone https://github.com/ivanuclm/urban-mobility-sim.git
+cd urban-mobility-sim
 docker compose up --build
 ```
 
-Servicios esperados:
+**First run takes ~15–20 minutes** while OSRM builds the routing graphs for
+all three profiles (car, cycling, foot) from the included OSM extract. Every
+subsequent run starts in seconds — the graphs are cached on disk.
 
-- frontend: `http://127.0.0.1:5173`
-- backend: `http://127.0.0.1:8000`
-- backend health: `http://127.0.0.1:8000/health`
-- osrm-car: `http://127.0.0.1:5000`
-- osrm-bike: `http://127.0.0.1:5001`
-- osrm-foot: `http://127.0.0.1:5002`
-- otp: `http://127.0.0.1:8080`
-- otp plan: `http://127.0.0.1:8080/otp/routers/default/plan`
+Once all services are ready, open:
 
-## Datos necesarios
+| Service | URL |
+|---|---|
+| Simulator | <http://127.0.0.1:5173> |
+| Backend API | <http://127.0.0.1:8000> |
+| API health | <http://127.0.0.1:8000/health> |
+| OpenTripPlanner | <http://127.0.0.1:8080> |
+| OSRM car | <http://127.0.0.1:5000> |
+| OSRM cycling | <http://127.0.0.1:5001> |
+| OSRM foot | <http://127.0.0.1:5002> |
 
-El repositorio no versiona en Git los artefactos pesados generados localmente. Antes de arrancar deben existir, como mínimo:
+### What happens on first run
 
-- `osrm-clm/car/clm.osrm` y `clm.osrm.*`
-- `osrm-clm/bike/clm.osrm` y `clm.osrm.*`
-- `osrm-clm/foot/clm.osrm` y `clm.osrm.*`
-- `otp-toledo/graph.obj`
-- modelos en `lpmc/models/`
-- GTFS extraído en `movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo_2026/`
+The `docker compose up` command orchestrates the following automatically:
 
-Importante:
+1. **`gtfs-init`** — extracts `otp-toledo/GTFS_Urbano_Toledo_2026.zip` (from
+   LFS) to `movilidad-urbana-sim/backend/data/gtfs/`. Skipped on re-runs.
+2. **`osrm-setup`** — runs `osrm-extract → osrm-partition → osrm-customize`
+   for each profile (car, cycling, foot) using the shared OSM PBF from LFS.
+   Profiles that are already compiled are skipped.
+3. All remaining services start once the init containers finish.
 
-- `osrm-clm/` y `otp-toledo/` sí son usados por Docker a través de los volúmenes montados en [`docker-compose.yml`](./docker-compose.yml).
-- El backend no abre esos directorios directamente; consume OSRM y OTP por HTTP.
-- El GTFS que usa el backend para paradas, líneas y horarios se lee desde `movilidad-urbana-sim/backend/data/gtfs/...`, no desde `otp-toledo/`.
+---
 
-## Fuentes de datos y referencias
+## Architecture
 
-Fuentes externas utilizadas en el proyecto:
+The frontend never talks directly to OSRM or OTP — all requests go through
+the FastAPI backend, which acts as an orchestration layer.
 
-- GTFS urbano de Toledo desde el NAP del Ministerio de Transportes y Movilidad Sostenible: <https://nap.mitma.es/>
-- Extracto OSM de Castilla-La Mancha desde Geofabrik: <https://download.geofabrik.de/europe/spain/castilla-la-mancha.html>
-- Documentación oficial de OSRM: <https://project-osrm.org/docs/>
-- Repositorio oficial de OSRM: <https://github.com/Project-OSRM/osrm-backend>
-- Documentación oficial de OpenTripPlanner: <https://docs.opentripplanner.org/>
-- Imagen oficial de OpenTripPlanner en Docker Hub: <https://hub.docker.com/r/opentripplanner/opentripplanner>
-
-Perfiles OSRM utilizados:
-
-- `car.lua`
-- `bicycle.lua`
-- `foot.lua`
-
-Estos perfiles proceden de la imagen oficial `osrm/osrm-backend`.
-
-## Preparación de OSRM
-
-Cada perfil necesita su propio `clm.osm.pbf` y su propio dataset generado.
-
-Estructura esperada:
-
-- `osrm-clm/car/clm.osm.pbf`
-- `osrm-clm/bike/clm.osm.pbf`
-- `osrm-clm/foot/clm.osm.pbf`
-
-Comandos de preprocesado, solo cuando cambie el `.osm.pbf`:
-
-```powershell
-# CAR
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-extract -p /opt/car.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
-
-# BIKE
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-extract -p /opt/bicycle.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
-
-# FOOT
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-extract -p /opt/foot.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
+```
+Browser (React + Leaflet)
+        │  HTTP
+        ▼
+FastAPI backend  ──► OSRM car     (port 5000)
+    /api/osrm        OSRM cycling  (port 5001)
+    /api/otp         OSRM foot     (port 5002)
+    /api/gtfs        OTP           (port 8080)
+    /api/lpmc
 ```
 
-## Preparación de OTP
+### Repository layout
 
-En `otp-toledo/` deben estar disponibles:
-
-- `clm.osm.pbf`
-- `GTFS_Urbano_Toledo_2026.zip`
-- `graph.obj`
-
-Si cambian OSM o GTFS, regenera el grafo:
-
-```powershell
-docker run --rm -v "f:/TFM/otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --build --save
+```
+.
+├── movilidad-urbana-sim/
+│   ├── backend/          FastAPI (Python 3.12)
+│   └── frontend/         React + Vite + TypeScript + Leaflet
+├── osrm-clm/
+│   └── clm.osm.pbf       Castilla-La Mancha OSM extract (Git LFS, ~97 MB)
+├── otp-toledo/
+│   ├── graph.obj          Pre-built OTP graph (Git LFS, ~117 MB)
+│   └── GTFS_Urbano_Toledo_2026.zip  Toledo urban GTFS (Git LFS, ~14 MB)
+├── lpmc/
+│   ├── models/            Trained models (Git LFS)
+│   │   ├── xgb_lpmc.joblib        XGBoost — active model (~17 MB)
+│   │   ├── dnn_lpmc.pt            DNN (PyTorch, ~66 KB)
+│   │   └── dnn_lpmc.joblib        DNN wrapper
+│   └── *.py               Training scripts
+├── latex/                 Academic thesis (LaTeX source + compiled PDF)
+├── docker/                Dockerfiles (backend, frontend)
+├── scripts/               Setup helpers (gtfs_extract.py)
+└── docker-compose.yml
 ```
 
-El arranque habitual del contenedor OTP usa `--load --serve`, por lo que necesita que `graph.obj` ya exista.
+### Git LFS
 
-## Preparación del GTFS del backend
+Large binary files are stored in Git LFS (not in the regular git history).
+They are downloaded automatically by `git clone` when LFS is installed. If
+you forgot to install LFS before cloning, run:
 
-El backend espera el GTFS descomprimido en:
-
-- `movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo_2026/`
-
-Si actualizas el ZIP, vuelve a extraerlo:
-
-```powershell
-Expand-Archive -Path "f:/TFM/otp-toledo/GTFS_Urbano_Toledo_2026.zip" -DestinationPath "f:/TFM/movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo_2026" -Force
+```bash
+git lfs install
+git lfs pull
 ```
 
-## Arranque manual
+Files tracked via LFS:
 
-Solo tiene sentido si no usas `docker compose`.
+| File | Size | Purpose |
+|---|---|---|
+| `osrm-clm/clm.osm.pbf` | ~97 MB | OSM road network (CLM region) |
+| `otp-toledo/graph.obj` | ~117 MB | Pre-built OTP routing graph |
+| `otp-toledo/GTFS_Urbano_Toledo_2026.zip` | ~14 MB | Toledo urban GTFS feed |
+| `lpmc/models/xgb_lpmc.joblib` | ~17 MB | XGBoost mode choice model |
+| `lpmc/models/dnn_lpmc.pt` | ~66 KB | DNN mode choice model |
 
-```powershell
-# OSRM
-docker run -d --name osrm-car  -p 5000:5000 -v "f:/TFM/osrm-clm/car:/data"  osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
-docker run -d --name osrm-bike -p 5001:5000 -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
-docker run -d --name osrm-foot -p 5002:5000 -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
+---
 
-# OTP
-docker run -d --name otp-toledo -p 8080:8080 -v "f:/TFM/otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --load --serve
+## Travel mode choice models
 
-# Backend
-cd f:/TFM/movilidad-urbana-sim/backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
+The `/api/lpmc/predict` endpoint uses the XGBoost model by default
+(`LPMC_MODEL_VARIANT=xgb` in `docker-compose.yml`).
 
-# Frontend
-cd f:/TFM/movilidad-urbana-sim/frontend
-npm run dev
+The `/api/lpmc/compare` endpoint runs all three models simultaneously and
+gracefully skips any that are not available.
+
+| Model | File | Included | Notes |
+|---|---|---|---|
+| XGBoost | `xgb_lpmc.joblib` | Yes (LFS) | Active model, best accuracy |
+| DNN (PyTorch) | `dnn_lpmc.pt` | Yes (LFS) | Used in /compare |
+| Random Forest | `rf_lpmc.joblib` | No | Train locally (see below) |
+
+### Training the Random Forest (optional)
+
+The RF model (~600 MB) is excluded from the repository. To enable it for the
+`/compare` endpoint, train it locally:
+
+```bash
+# Requires the LPMC dataset — contact the project supervisor
+cd lpmc
+python 02_preprocess.py      # generates data/preprocessed/
+python 04_train_rf.py        # writes models/rf_lpmc.joblib (~15 min)
+docker compose restart backend
 ```
 
-## Endpoints principales
+If the RF model file is absent, `GET /api/lpmc/compare` returns results for
+XGBoost and DNN only, with no error.
 
-- `POST /api/osrm/routes`
-- `POST /api/otp/routes`
-- `GET /api/gtfs/stops`
-- `GET /api/gtfs/routes`
-- `GET /api/gtfs/routes/{route_id}`
-- `GET /api/gtfs/routes/{route_id}/schedule`
+---
 
-## Bloque LPMC
+## Rebuilding data (advanced)
 
-Pipeline base:
+The pre-built `graph.obj` and OSRM graphs are sufficient for normal use.
+Rebuild only if you update the OSM extract or GTFS feed.
 
-```powershell
-cd f:/TFM/lpmc
-python 01_explore.py
-python 02_preprocess.py
-python 03_train_xgb_baseline.py
-python 04_inspect_and_infer.py
+### Rebuild OTP graph
+
+```bash
+docker run --rm \
+  -v "$(pwd)/otp-toledo:/var/opentripplanner" \
+  opentripplanner/opentripplanner:2.5.0 \
+  --build --save
 ```
 
-## Memoria del TFM
+### Rebuild OSRM graphs
 
-La memoria académica extensa del trabajo se mantiene en:
+Delete the profile directories and re-run `docker compose up`:
 
-- `latex/`
+```bash
+rm -rf osrm-clm/car osrm-clm/bike osrm-clm/foot
+docker compose up
+```
 
-## Versionado
+---
 
-- Los datos pesados y regenerables no se suben al repositorio Git normal.
-- El `.gitignore` ya excluye artefactos como `*.osrm`, `graph.obj`, `*.osm.pbf`, zips y modelos.
-- Si necesitas compartir esos artefactos, es preferible usar una fuente externa, Git LFS o instrucciones de reconstrucción, no commits binarios pesados en GitHub.
+## Data sources
+
+| Dataset | Source |
+|---|---|
+| Toledo urban GTFS | [NAP — Ministerio de Transportes](https://nap.mitma.es/) |
+| OSM road network (CLM) | [Geofabrik](https://download.geofabrik.de/europe/spain/castilla-la-mancha.html) |
+| LPMC dataset | Hillel et al. (2018), provided by the thesis supervisor |
+
+OSRM routing profiles (`car.lua`, `bicycle.lua`, `foot.lua`) are the official
+profiles bundled inside the `osrm/osrm-backend` Docker image.
+
+---
+
+## Academic context
+
+**Title:** Web-based simulator for urban mobility scenarios using Artificial
+Intelligence techniques
+
+**Programme:** Master's Degree in Computer Engineering, ESIIAB-UCLM
+
+**Key references:**
+- Hillel et al. (2018) — LPMC dataset
+- Martín-Baos et al. (2023) — ML for travel mode choice (TRC)
+- Chen & Guestrin (2016) — XGBoost
+
+---
+
+## License
+
+Source code: MIT. Data files distributed under their respective original
+licenses (see Data sources above).

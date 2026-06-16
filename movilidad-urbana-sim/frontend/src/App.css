@@ -649,14 +649,12 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .stop-route-chip:hover { filter: brightness(.88); }
 
-/* ── Route list (panel Red) ─────────────────────────────────── */
+/* ── Route list (panel Red) — mantenido por compatibilidad, sustituido por gtfs-accordion ── */
 .route-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
   margin-bottom: 6px;
-  max-height: calc(100vh - 280px);
-  overflow-y: auto;
 }
 
 .route-card {
@@ -758,4 +756,258 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   background: #e8f0fe;
   border-color: #1a73e8;
   color: #1a73e8;
+}
+
+/* ── GTFS Accordion ──────────────────────────────────────────── */
+.gtfs-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gtfs-line {
+  border-radius: 8px;
+  border: 1px solid #e8eaed;
+  overflow: hidden;
+  background: #fff;
+}
+.gtfs-line--open {
+  border-color: #1a73e8;
+}
+
+.gtfs-line-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 10px !important;
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-family: inherit !important;
+  height: auto !important;
+  min-height: 36px !important;
+  transition: background 80ms !important;
+}
+.gtfs-line-header:hover { background: #f8f9fa !important; }
+.gtfs-line--open .gtfs-line-header { background: #e8f0fe !important; }
+
+.gtfs-line-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: .01em;
+}
+
+.gtfs-line-name {
+  font-size: .78rem;
+  color: #3c4043;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.gtfs-line--open .gtfs-line-name { color: #1a73e8; font-weight: 500; }
+
+.gtfs-chevron {
+  flex-shrink: 0;
+  color: #9aa0a6;
+  transition: transform 180ms ease;
+}
+.gtfs-chevron--open { transform: rotate(180deg); }
+
+.gtfs-line-body {
+  border-top: 1px solid #e8eaed;
+  padding: 0;
+}
+
+/* Sub-trayectos */
+.gtfs-variant-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.gtfs-variant-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 5px 12px 5px 10px !important;
+  background: transparent !important;
+  border: none !important;
+  border-left: 3px solid transparent !important;
+  border-radius: 0 !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-family: inherit !important;
+  font-size: .75rem !important;
+  color: #3c4043 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  transition: background 80ms !important;
+}
+.gtfs-variant-item:hover { background: #f8f9fa !important; }
+.gtfs-variant-item--active { background: #f0f4ff !important; color: #1a73e8 !important; font-weight: 500 !important; }
+
+.gtfs-variant-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Stop diagram ────────────────────────────────────────────── */
+.stop-diagram {
+  padding: 8px 0 4px 12px;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.stop-diagram-title {
+  font-size: .7rem;
+  color: #9aa0a6;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding-left: 26px;
+  margin-bottom: 4px;
+}
+
+.stop-row {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: stretch;
+  min-height: 24px;
+}
+
+.stop-row--hl .stop-row__label {
+  font-weight: 600;
+  color: #1a73e8;
+}
+
+.stop-row__track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+}
+
+.stop-row__seg {
+  width: 2px;
+  flex: 1;
+  background: var(--route-color, #f97316);
+  min-height: 5px;
+}
+.stop-row__seg--none {
+  background: transparent;
+}
+
+.stop-row__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--route-color, #f97316);
+  background: #fff;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.stop-row__dot--terminal {
+  width: 11px;
+  height: 11px;
+  background: var(--route-color, #f97316);
+  border-color: var(--route-color, #f97316);
+}
+.stop-row__dot--hl {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  width: 11px;
+  height: 11px;
+  box-shadow: 0 0 0 3px rgba(26,115,232,.2);
+}
+
+.stop-row__label {
+  padding: 2px 10px 2px 6px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-family: inherit !important;
+  font-size: .75rem !important;
+  color: #3c4043 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  align-self: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stop-row__label:hover { background: #f1f3f4 !important; color: #1a73e8 !important; }
+
+/* ── Schedule table ──────────────────────────────────────────── */
+.gtfs-schedule {
+  padding: 8px 12px;
+}
+
+.gtfs-schedule-title {
+  font-size: .7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #9aa0a6;
+  margin-bottom: 6px;
+}
+
+.gtfs-schedule-section {
+  margin-bottom: 10px;
+}
+
+.gtfs-schedule-dir {
+  font-size: .78rem;
+  font-weight: 600;
+  color: #3c4043;
+  margin-bottom: 2px;
+}
+
+.gtfs-schedule-meta {
+  font-size: .7rem;
+  color: #9aa0a6;
+  margin-bottom: 4px;
+}
+
+.gtfs-schedule-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: .73rem;
+}
+
+.gtfs-schedule-table tr:nth-child(even) { background: #f8f9fa; }
+
+.gtfs-hour {
+  width: 28px;
+  padding: 2px 6px 2px 4px;
+  font-weight: 700;
+  color: #1a73e8;
+  text-align: right;
+  white-space: nowrap;
+  border-right: 1px solid #e8eaed;
+  font-variant-numeric: tabular-nums;
+}
+
+.gtfs-mins {
+  padding: 2px 4px 2px 8px;
+  color: #3c4043;
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
 }

@@ -177,7 +177,7 @@ El router \texttt{/api/gtfs} expone la información estática de la red de autob
 
 El feed GTFS es una colección de ficheros CSV empaquetados en un archivo ZIP \cite{GTFSReference}. En el arranque del servicio, el backend descomprime y carga en memoria con \texttt{pandas} los seis ficheros necesarios: \texttt{stops.txt} (paradas con coordenadas y nombre), \texttt{routes.txt} (líneas de la red), \texttt{trips.txt} (servicios programados por línea), \texttt{stop\_times.txt} (horarios de paso por cada parada), \texttt{shapes.txt} (geometría de los trazados) y \texttt{calendar\_dates.txt} (calendario de excepciones de servicio). Los DataFrames resultantes permanecen en memoria durante toda la vida del proceso.
 
-Responder a consultas como «qué líneas pasan por esta parada» o «cuál es el horario de una ruta para una fecha concreta» requiere cruzar varios de estos ficheros. Para obtener las líneas asociadas a una parada se encadenan tres joins: \texttt{stops.txt} $\to$ \texttt{stop\_times.txt} $\to$ \texttt{trips.txt} $\to$ \texttt{routes.txt}. Para los horarios por fecha se añade el filtro de \texttt{calendar\_dates.txt}, que indica los días en que cada servicio está activo. Mantener todos los ficheros en memoria evita releer los CSV en cada petición y elimina la necesidad de añadir una base de datos para datos que no cambian en tiempo de ejecución.
+Responder a preguntas como ``qué líneas pasan por esta parada'' o ``cuál es el horario de una ruta para una fecha concreta'' requiere cruzar varios de estos ficheros. Para obtener las líneas asociadas a una parada se encadenan tres joins: \texttt{stops.txt} $\to$ \texttt{stop\_times.txt} $\to$ \texttt{trips.txt} $\to$ \texttt{routes.txt}. Para los horarios por fecha se añade el filtro de \texttt{calendar\_dates.txt}, que indica los días en que cada servicio está activo. Mantener todos los ficheros en memoria evita releer los CSV en cada petición y elimina la necesidad de añadir una base de datos para datos que no cambian en tiempo de ejecución.
 
 \subsection{Endpoints disponibles}
 \label{subsec:impl_gtfs_endpoints}
@@ -196,32 +196,17 @@ La capa GTFS expone cuatro endpoints que cubren las operaciones necesarias para 
 
 El feed de Toledo contiene 56 entradas en \texttt{routes.txt}, pero solo 25 líneas físicas distintas: el operador crea un \texttt{route\_id} independiente por cada combinación de dirección y variante de recorrido de una misma línea. La interfaz agrupa las entradas por nombre corto (\texttt{route\_short\_name}) y muestra únicamente las 25 líneas únicas, evitando duplicados en el catálogo visual.
 
-\subsection{Coloración determinista de líneas}
+\subsection{Coloración de líneas}
 \label{subsec:impl_gtfs_color}
 
-El feed GTFS de Toledo no incluye de forma consistente los campos opcionales \texttt{route\_color} y \texttt{route\_text\_color}, por lo que una asignación aleatoria generaría inconsistencias visuales entre sesiones: la misma línea aparecería con colores distintos en cada recarga. Para garantizar estabilidad visual, el color de cada línea se determina de forma completamente determinista mediante un hash polinómico sobre los caracteres de su identificador:
+El feed GTFS de Toledo incluye los campos \texttt{route\_color} y \texttt{route\_text\_color} para todas sus líneas. La implementación inicial los ignoraba y calculaba colores propios mediante un hash sobre el identificador de ruta, con el consiguiente desajuste visual respecto a la identidad cromática del operador. La solución consiste en leer ambos campos directamente del feed y aplicarlos en el panel lateral y en los chips de parada, garantizando coherencia con la señalética oficial. Cuando el feed no incluya estos campos, se genera un color de respaldo mediante un hash polinómico sobre el nombre corto proyectado al espacio HSL con saturación del 70\,\% y luminosidad del 35\,\%, valores que aseguran contraste suficiente para texto sobre cualquier tono generado.
 
-\begin{equation}
-  \text{color}(\mathit{route\_id}) = \text{PALETTE}\!\left[\left|\sum_{i=0}^{n-1} \mathrm{ord}(\mathit{route\_id}[i]) \cdot 31^{i}\right| \bmod |\text{PALETTE}|\right]
-\end{equation}
-
-La función convierte el identificador de texto en un número entero en tres pasos. Primero, cada carácter se transforma en su valor ASCII mediante \texttt{ord()}, con lo que la cadena queda representada como una secuencia de enteros. Segundo, cada valor se pondera por $31^{i}$, donde $i$ es la posición del carácter en la cadena: así, cadenas con los mismos caracteres en distinto orden producen hashes diferentes (por ejemplo, \texttt{"L1"} y \texttt{"1L"} dan resultados distintos). El 31 es una base prima con buenas propiedades de distribución en hashes de cadenas, la misma que emplea \texttt{String.hashCode()} en Java. Por último, el valor absoluto evita índices negativos y el módulo sobre $|\mathrm{PALETTE}|$ garantiza que el resultado siempre caiga dentro del rango válido del vector, independientemente del valor del hash. La implementación en Python refleja fielmente la fórmula:
-
-\begin{lstlisting}[language=Python]
-PALETTE = ["#f97316", "#0ea5e9", ..., "#06b6d4", "#8b5cf6"]
-
-def route_color(route_id: str) -> str:
-    h = sum(ord(c) * (31 ** i) for i, c in enumerate(route_id))
-    return PALETTE[abs(h) % len(PALETTE)]
-\end{lstlisting}
-
-La Figura~\ref{fig:gtfs_paradas} muestra la capa GTFS en la interfaz: las paradas aparecen como marcadores interactivos sobre el mapa de Toledo, y al seleccionar una se despliega un popup con su nombre, código y las líneas que la sirven coloreadas con la paleta determinista. En el panel lateral se presenta el detalle de la línea seleccionada: el trazado completo sobre el mapa, la secuencia de paradas y los horarios del día.
+La Figura~\ref{fig:gtfs_paradas} muestra el panel Red GTFS junto al mapa. El catálogo se organiza en un acordeón donde cada fila representa una línea física identificada por nombre corto, color y nombre largo. Al expandir una entrada, el panel muestra: el trazado de la ruta sobre el mapa en el color oficial, un diagrama vertical de paradas inspirado en los paneles de andén (terminales como puntos rellenos, intermedias como aros huecos), y una tabla de salidas agrupada por hora. Cuando una línea tiene variantes en sentidos distintos, aparece una sublista con los headsigns de cada subtrayecto. Al pulsar sobre una parada del diagrama, el mapa ejecuta un desplazamiento animado (\texttt{flyTo}) hasta esa posición.
 
 \begin{figure}[H]
   \centering
-    % \missingfigure{Captura de la interfaz mostrando la capa GTFS: paradas como marcadores interactivos sobre el mapa de Toledo, con popups que muestran nombre, código y líneas asociadas coloreadas. Al seleccionar una línea, se muestra su trazado completo sobre el mapa, secuencia de paradas y horarios del día en el panel lateral.}
-  \includegraphics[width=1.0\textwidth]{figs/GTFS_Linea5.png}
-  \caption{Capa GTFS en la interfaz: paradas interactivas y detalle de línea.}
+  \missingfigure{Panel Red GTFS: acordeón con colores únicos por línea, diagrama vertical de paradas y tabla de horarios agrupada por hora, junto al trazado de la ruta seleccionada sobre el mapa.}
+  \caption{Panel GTFS con acordeón de líneas, diagrama de paradas y horarios.}
   \label{fig:gtfs_paradas}
 \end{figure}
 

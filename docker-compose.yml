@@ -1,4 +1,45 @@
 services:
+
+  # ── One-time init: extract GTFS zip to backend data dir ─────────────────────
+  gtfs-init:
+    image: python:3-slim
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    command: python scripts/gtfs_extract.py
+    restart: "no"
+
+  # ── One-time init: build OSRM routing graphs (car / bike / foot) ─────────────
+  # First run: ~15 min total (extract → partition → customize per profile).
+  # Subsequent runs: instant (graphs already present in osrm-clm/{car,bike,foot}/).
+  osrm-setup:
+    image: osrm/osrm-backend:latest
+    volumes:
+      - ./osrm-clm:/data
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        for entry in "car:/opt/car.lua" "bike:/opt/bicycle.lua" "foot:/opt/foot.lua"; do
+          profile=$$(echo "$$entry" | cut -d: -f1)
+          lua=$$(echo "$$entry" | cut -d: -f2)
+          if [ ! -f /data/$$profile/clm.osrm ]; then
+            echo "=== Building OSRM graph for $$profile (~5 min) ==="
+            mkdir -p /data/$$profile
+            PBF=$$(ls /data/*.osm.pbf | head -1)
+          cp "$$PBF" /data/$$profile/clm.osm.pbf
+            osrm-extract -p $$lua /data/$$profile/clm.osm.pbf
+            osrm-partition /data/$$profile/clm.osrm
+            osrm-customize /data/$$profile/clm.osrm
+            echo "=== Done: $$profile ==="
+          else
+            echo "=== $$profile already built, skipping ==="
+          fi
+        done
+        echo "All OSRM graphs ready."
+    restart: "no"
+
+  # ── Backend (FastAPI) ────────────────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -11,15 +52,22 @@ services:
       OSRM_CYCLING_URL: http://osrm-bike:5000
       OSRM_FOOT_URL: http://osrm-foot:5000
       OTP_PLAN_URL: http://otp:8080/otp/routers/default/plan
-      LPMC_MODEL_VARIANT: nohh
+      LPMC_MODEL_VARIANT: xgb
     ports:
       - "8000:8000"
     depends_on:
-      - osrm-car
-      - osrm-bike
-      - osrm-foot
-      - otp
+      gtfs-init:
+        condition: service_completed_successfully
+      osrm-car:
+        condition: service_started
+      osrm-bike:
+        condition: service_started
+      osrm-foot:
+        condition: service_started
+      otp:
+        condition: service_started
 
+  # ── Frontend (React + Vite) ──────────────────────────────────────────────────
   frontend:
     build:
       context: .
@@ -35,6 +83,7 @@ services:
     depends_on:
       - backend
 
+  # ── OSRM routing engines ──────────────────────────────────────────────────────
   osrm-car:
     image: osrm/osrm-backend:latest
     command: osrm-routed --algorithm mld /data/clm.osrm
@@ -42,6 +91,9 @@ services:
       - ./osrm-clm/car:/data
     ports:
       - "5000:5000"
+    depends_on:
+      osrm-setup:
+        condition: service_completed_successfully
 
   osrm-bike:
     image: osrm/osrm-backend:latest
@@ -50,6 +102,9 @@ services:
       - ./osrm-clm/bike:/data
     ports:
       - "5001:5000"
+    depends_on:
+      osrm-setup:
+        condition: service_completed_successfully
 
   osrm-foot:
     image: osrm/osrm-backend:latest
@@ -58,7 +113,11 @@ services:
       - ./osrm-clm/foot:/data
     ports:
       - "5002:5000"
+    depends_on:
+      osrm-setup:
+        condition: service_completed_successfully
 
+  # ── OpenTripPlanner (public transport routing) ────────────────────────────────
   otp:
     image: opentripplanner/opentripplanner:2.5.0
     command: --load --serve

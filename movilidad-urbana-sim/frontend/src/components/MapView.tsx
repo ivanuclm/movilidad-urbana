@@ -3,6 +3,7 @@ import {
   TileLayer,
   Marker,
   useMapEvents,
+  useMap,
   Polyline,
   CircleMarker,
   Popup,
@@ -67,6 +68,8 @@ type TransitRouteRef = {
   id: string;
   short_name?: string;
   long_name?: string;
+  color?: string | null;
+  text_color?: string | null;
 };
 
 type GtfsStop = {
@@ -108,24 +111,20 @@ interface MapViewProps {
   transitShape?: Point[];
   transitRouteStops?: GtfsStop[];
   transitRouteColor?: string;
-  onSelectTransitRoute?: (routeId: string) => void;
+  onSelectTransitRoute?: (routeId: string, fromStopId?: string) => void;
   transitSegments?: TransitSegment[];
   osrmResults?: OsrmResult[];
+  flyTarget?: Point | null;
+  onFlyDone?: () => void;
+  highlightedStopId?: string;
 }
 
 type ContextMenuState = { x: number; y: number; lat: number; lng: number } | null;
 
-// Paleta y hash determinista — misma función que en App.tsx
-const ROUTE_PALETTE = [
-  "#f97316","#0ea5e9","#a855f7","#22c55e","#e11d48",
-  "#14b8a6","#facc15","#3b82f6","#ec4899","#10b981",
-  "#f59e0b","#6366f1","#ef4444","#84cc16","#06b6d4","#8b5cf6",
-];
-
-function colorForRoute(routeId: string): string {
+function hslForKey(key: string): string {
   let h = 0;
-  for (let i = 0; i < routeId.length; i++) h = (h * 31 + routeId.charCodeAt(i)) | 0;
-  return ROUTE_PALETTE[Math.abs(h) % ROUTE_PALETTE.length];
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(h) % 360}, 70%, 35%)`;
 }
 
 function dedupeRoutes(routes: TransitRouteRef[]): TransitRouteRef[] {
@@ -162,6 +161,16 @@ function MapInteractionHandler({
   return null;
 }
 
+function FlyToHandler({ target, onDone }: { target: Point | null | undefined; onDone?: () => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!target) return;
+    map.flyTo([target.lat, target.lon], 17, { duration: 0.8 });
+    onDone?.();
+  }, [target]);
+  return null;
+}
+
 export function MapView({
   origin,
   destination,
@@ -176,6 +185,9 @@ export function MapView({
   onSelectTransitRoute,
   transitSegments,
   osrmResults,
+  flyTarget,
+  onFlyDone,
+  highlightedStopId,
 }: MapViewProps) {
   const basemapConfig: Record<
     BasemapMode,
@@ -232,6 +244,7 @@ export function MapView({
   return (
     <>
     <MapContainer center={defaultCenter} zoom={13} className="map-container">
+      <FlyToHandler target={flyTarget} onDone={onFlyDone} />
       <TileLayer
         attribution={basemapConfig[basemap].attribution}
         url={basemapConfig[basemap].url}
@@ -334,12 +347,15 @@ export function MapView({
                           key={r.id}
                           type="button"
                           className="stop-route-chip"
-                          style={{ background: colorForRoute(r.id) }}
+                          style={{
+                            background: r.color ? `#${r.color}` : hslForKey(r.short_name || r.id),
+                            color: r.text_color ? `#${r.text_color}` : 'white',
+                          }}
                           title={r.long_name || r.short_name || r.id}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            onSelectTransitRoute?.(r.id);
+                            onSelectTransitRoute?.(r.id, s.id);
                           }}
                         >
                           {r.short_name || r.id}
@@ -355,14 +371,23 @@ export function MapView({
 
       {/* Paradas de la ruta GTFS seleccionada (resaltadas) */}
       {transitRouteStops &&
-        transitRouteStops.map((s) => (
-          <CircleMarker
-            key={`route-${s.id}`}
-            center={[s.lat, s.lon]}
-            radius={5}
-            pathOptions={{ color: transitRouteColor || "#f97316", weight: 2 }}
-          />
-        ))}
+        transitRouteStops.map((s) => {
+          const isHighlighted = s.id === highlightedStopId;
+          return (
+            <CircleMarker
+              key={`route-${s.id}`}
+              center={[s.lat, s.lon]}
+              radius={isHighlighted ? 8 : 5}
+              pathOptions={{
+                color: transitRouteColor || '#f97316',
+                weight: 2,
+                fillColor: isHighlighted ? transitRouteColor || '#f97316' : 'white',
+                fillOpacity: isHighlighted ? 1 : 0,
+                interactive: false,
+              }}
+            />
+          );
+        })}
     </MapContainer>
 
     {/* Menú contextual de clic derecho */}

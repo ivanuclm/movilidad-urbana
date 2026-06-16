@@ -1,0 +1,66 @@
+{
+  "Random Forest": {
+    "train_cv": {
+      "accuracy": 0.7486762659669185,
+      "gmpca": 0.5118334954984292
+    },
+    "test": {
+      "accuracy": 0.7409954407294833,
+      "gmpca": 0.5032758723011433
+    },
+    "model_params": {
+      "n_estimators": 500,
+      "max_depth": "None",
+      "min_samples_split": 5,
+      "min_samples_leaf": 2,
+      "max_features": "sqrt",
+      "n_jobs": -1,
+      "random_state": 481516
+    },
+    "cv_folds": 5
+  },
+  "XGBoost": {
+    "train_cv": {
+      "accuracy": 0.7548296178298028,
+      "gmpca": 0.5254091858863831
+    },
+    "test": {
+      "accuracy": 0.7441489361702127,
+      "gmpca": 0.5163173675537109
+    },
+    "model_params": {
+      "max_depth": 4,
+      "gamma": 3.931781434966718,
+      "min_child_weight": 35,
+      "max_delta_step": 9,
+      "subsample": 0.7667332690572212,
+      "colsample_bytree": 0.9343084611837867,
+      "colsample_bylevel": 0.6514580147153639,
+      "reg_alpha": 0.04829946881115557,
+      "reg_lambda": 0.037112340554694714,
+      "n_estimators": 4809,
+      "learning_rate": 0.01,
+      "objective": "multi:softprob",
+      "eval_metric": "mlogloss",
+      "num_class": 4,
+      "n_jobs": -1,
+      "random_state": 42
+    },
+    "cv_folds": 5
+  },
+  "DNN": {
+    "train_cv": {
+      "accuracy": 0.7521271802181783,
+      "gmpca": 0.5121507406234741
+    },
+    "test": {
+      "accuracy": 0.7427051671732523,
+      "gmpca": 0.5036952495574951
+    },
+    "architecture": "Input\u2192BN\u2192Linear(128,relu)\u2192Drop(0.3)\u2192Linear(64,relu)\u2192Drop(0.2)\u2192Linear(32,relu)\u2192Linear(4)",
+    "epochs_trained": 60,
+    "epochs_max": 100,
+    "batch_size": 512,
+    "cv_folds": 5
+  }
+}

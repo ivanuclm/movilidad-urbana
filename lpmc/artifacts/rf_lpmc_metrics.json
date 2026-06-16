@@ -1,0 +1,20 @@
+{
+  "train_cv": {
+    "accuracy": 0.7486762659669185,
+    "gmpca": 0.5118334954984292
+  },
+  "test": {
+    "accuracy": 0.7409954407294833,
+    "gmpca": 0.5032758723011433
+  },
+  "model_params": {
+    "n_estimators": 500,
+    "max_depth": "None",
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "max_features": "sqrt",
+    "n_jobs": -1,
+    "random_state": 481516
+  },
+  "cv_folds": 5
+}

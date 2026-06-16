@@ -95,10 +95,19 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
   en docker-compose. household_id solo para GroupKFold, nunca como feature.
 - Las duraciones de OSRM/OTP se convierten de segundos a horas en el pipeline
   de inferencia para coincidir con las unidades del dataset LPMC.
-- Colores de línea GTFS deterministas por route_id para consistencia visual.
-  Paleta de 16 colores en ROUTE_COLOR_PALETTE (App.tsx:369). Hash polinómico
-  iterativo con base 31: `hash = hash * 31 + charCode` (mismo que Java
-  String.hashCode()). Índice = abs(hash) % len(PALETTE).
+- GTFS de Toledo: sin columna direction_id en trips.txt. Cada sentido es un
+  route_id distinto con el mismo short_name (ej. L5 → 50011 y 50012).
+  siblingRouteIds agrupa todos los route_id con igual short_name. El índice
+  activo (selectedVariantIndex) es DERIVADO: indexOf(selectedTransitRouteId,
+  siblingRouteIds). Clic en chip de parada pasa el route_id exacto y selecciona
+  el sentido correcto sin lógica adicional.
+- Colores de línea GTFS únicos garantizados (11 jun 2026): paleta LINE_COLORS
+  de 26 colores fijos en App.tsx. Los short_name únicos se ordenan alfabéticamente
+  y el i-ésimo recibe LINE_COLORS[i % 26], garantizando cero colisiones para las
+  25 líneas del GTFS de Toledo. routeColorMap (Map<string,string>) se computa en
+  el componente una vez cargada gtfsRoutesQuery. Hash polinómico conservado solo
+  como fallback mientras carga. El mapa se pasa como prop colorMap a MapView
+  para que los chips de parada tengan idéntico color al badge del panel.
 - Segmentos OTP solo visibles cuando el modo activo incluye transporte público
 - Botones de modo en frontend no son mutex: estado selectedModes: Set<UiMode>.
   Click normal → selección exclusiva (solo ese modo). Shift+click → toggle
@@ -114,6 +123,19 @@ combustible, costes) y devuelve probabilidades para walk, cycle, pt y drive.
 - UI rediseñada (8 jun 2026): sidebar-rail izquierdo (64px) + panel expandido
   (360px) superpuesto al mapa. Tres paneles: Rutas, Red GTFS, Predicción IA.
   Basemap en panel Capas. Menú contextual clic derecho: establecer origen/destino.
+- Panel Red GTFS rediseñado (11 jun 2026): acordeón agrupado por short_name
+  (no por route_id). Líneas con subtrayectos muestran chevron y despliegan la
+  lista de route_ids hermanos. El route_id activo tiene borde izquierdo coloreado.
+  Diagrama de paradas estilo cartel de línea: columna izquierda con línea vertical
+  del color de la línea + puntos (terminales rellenos, intermedios huecos, parada
+  resaltada en azul con halo). Clic en parada → map.flyTo(stop, zoom 17) via
+  FlyToHandler (useMap() dentro de MapContainer). Tabla de horarios agrupada por
+  hora (columna HH | columna de minutos). Fecha de horarios visible siempre al
+  inicio del panel (independiente de si hay línea seleccionada).
+  highlightedStopId: parada resaltada cuando la selección viene de un chip de popup
+  (onSelectTransitRoute recibe (routeId, fromStopId?) desde MapView).
+  interactive: false en CircleMarker de transitRouteStops para no bloquear clicks
+  en las paradas del fondo.
 
 ---
 

@@ -1,0 +1,15 @@
+{
+  "target_col": "travel_mode",
+  "classes": [
+    "walk",
+    "cycle",
+    "pt",
+    "drive"
+  ],
+  "class_to_code": {
+    "walk": 0,
+    "cycle": 1,
+    "pt": 2,
+    "drive": 3
+  }
+}

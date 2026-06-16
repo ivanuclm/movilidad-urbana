@@ -261,12 +261,12 @@ def list_routes() -> List[dict]:
     return list(GTFS_DATA.routes.values())
 
 
-def get_route_with_stops(route_id: str) -> Tuple[dict, List[dict], Optional[List[dict]]]:
+def get_route_with_stops(route_id: str) -> Tuple[dict, List[dict]]:
     """
     Devuelve:
     - info de la ruta (routes.txt)
-    - lista de paradas ordenadas para un viaje representativo
-    - geometría aproximada de la línea (shape) si existe
+    - lista de variantes, una por direction_id distinto, cada una con sus paradas
+      y geometría (shape del primer trip representativo de esa dirección)
     """
     route = GTFS_DATA.routes.get(route_id)
     if not route:
@@ -274,36 +274,48 @@ def get_route_with_stops(route_id: str) -> Tuple[dict, List[dict], Optional[List
 
     trips = GTFS_DATA.trips_by_route.get(route_id) or []
     if not trips:
-        return route, [], None
+        return route, []
 
-    trip = trips[0]
-    trip_id = trip["trip_id"]
-    shape_id = trip.get("shape_id")
+    # Un trip representativo por direction_id (el primero encontrado)
+    dir_trips: dict = {}
+    for trip in trips:
+        key = trip.get("direction_id") if trip.get("direction_id") is not None else 0
+        if key not in dir_trips:
+            dir_trips[key] = trip
 
-    stop_times = GTFS_DATA.stop_times_by_trip.get(trip_id) or []
+    variants: List[dict] = []
+    for _key, trip in sorted(dir_trips.items()):
+        trip_id = trip["trip_id"]
+        shape_id = trip.get("shape_id")
 
-    route_stops: List[dict] = []
-    for st in stop_times:
-        stop = GTFS_DATA.stops.get(st["stop_id"])
-        if not stop:
-            continue
-        route_stops.append(
-            {
+        stop_times = GTFS_DATA.stop_times_by_trip.get(trip_id) or []
+        route_stops: List[dict] = []
+        for st in stop_times:
+            stop = GTFS_DATA.stops.get(st["stop_id"])
+            if not stop:
+                continue
+            route_stops.append({
                 "stop_id": stop["stop_id"],
                 "name": stop["name"],
                 "desc": stop["desc"],
                 "lat": stop["lat"],
                 "lon": stop["lon"],
                 "sequence": st["sequence"],
-            }
-        )
+            })
 
-    geometry: Optional[List[dict]] = None
-    if shape_id and shape_id in GTFS_DATA.shapes_by_id:
-        pts = GTFS_DATA.shapes_by_id[shape_id]
-        geometry = [{"lat": lat, "lon": lon} for (lat, lon, _seq) in pts]
+        geometry: Optional[List[dict]] = None
+        if shape_id and shape_id in GTFS_DATA.shapes_by_id:
+            pts = GTFS_DATA.shapes_by_id[shape_id]
+            geometry = [{"lat": lat, "lon": lon} for (lat, lon, _seq) in pts]
 
-    return route, route_stops, geometry
+        variants.append({
+            "direction_id": trip.get("direction_id"),
+            "headsign": trip.get("headsign"),
+            "stops": route_stops,
+            "geometry": geometry,
+        })
+
+    return route, variants
 
 
 # --------- calendario + horarios ---------

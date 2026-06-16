@@ -1,0 +1,254 @@
+[
+  {
+    "column": "trip_id",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 81086,
+    "sample_values": "0, 1, 10, 100, 1000"
+  },
+  {
+    "column": "household_id",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 17616,
+    "sample_values": "0, 1, 10, 100, 1000"
+  },
+  {
+    "column": "person_n",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 10,
+    "sample_values": "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"
+  },
+  {
+    "column": "trip_n",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 19,
+    "sample_values": "0, 1, 10, 11, 12"
+  },
+  {
+    "column": "travel_mode",
+    "dtype": "object",
+    "non_null": 81086,
+    "n_unique": 4,
+    "sample_values": "cycle, drive, pt, walk"
+  },
+  {
+    "column": "purpose",
+    "dtype": "object",
+    "non_null": 81086,
+    "n_unique": 5,
+    "sample_values": "B, HBE, HBO, HBW, NHBO"
+  },
+  {
+    "column": "fueltype",
+    "dtype": "object",
+    "non_null": 81086,
+    "n_unique": 6,
+    "sample_values": "Average_Car, Diesel_Car, Diesel_LGV, Hybrid_Car, Petrol_Car, Petrol_LGV"
+  },
+  {
+    "column": "faretype",
+    "dtype": "object",
+    "non_null": 81086,
+    "n_unique": 5,
+    "sample_values": "16+, child, dis, free, full"
+  },
+  {
+    "column": "bus_scale",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 3,
+    "sample_values": "0.0, 0.5, 1.0"
+  },
+  {
+    "column": "survey_year",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 3,
+    "sample_values": "1, 2, 3"
+  },
+  {
+    "column": "travel_year",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 4,
+    "sample_values": "2012, 2013, 2014, 2015"
+  },
+  {
+    "column": "travel_month",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 12,
+    "sample_values": "1, 10, 11, 12, 2"
+  },
+  {
+    "column": "travel_date",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 31,
+    "sample_values": "1, 10, 11, 12, 13"
+  },
+  {
+    "column": "day_of_week",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 7,
+    "sample_values": "1, 2, 3, 4, 5, 6, 7"
+  },
+  {
+    "column": "start_time_linear",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 965,
+    "sample_values": "0.0, 0.016666667, 0.083333333, 0.1, 0.15"
+  },
+  {
+    "column": "age",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 91,
+    "sample_values": "10, 11, 12, 13, 14"
+  },
+  {
+    "column": "female",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 2,
+    "sample_values": "0, 1"
+  },
+  {
+    "column": "driving_license",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 2,
+    "sample_values": "0, 1"
+  },
+  {
+    "column": "car_ownership",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 3,
+    "sample_values": "0, 1, 2"
+  },
+  {
+    "column": "distance",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 13533,
+    "sample_values": "1000, 10004, 10005, 10006, 10007"
+  },
+  {
+    "column": "dur_walking",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 13997,
+    "sample_values": "0.025277778, 0.025555556, 0.028333333, 0.028611111, 0.029444444"
+  },
+  {
+    "column": "dur_cycling",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 5924,
+    "sample_values": "0.006111111, 0.006388889, 0.006944444, 0.007222222, 0.0075"
+  },
+  {
+    "column": "dur_pt_total",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 5361,
+    "sample_values": "0.0075, 0.01, 0.011111111, 0.011944444, 0.0125"
+  },
+  {
+    "column": "dur_pt_access",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 1932,
+    "sample_values": "0.0, 0.000555556, 0.001111111, 0.0025, 0.004166667"
+  },
+  {
+    "column": "dur_pt_rail",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 82,
+    "sample_values": "0.0, 0.016666667, 0.033333333, 0.05, 0.066666667"
+  },
+  {
+    "column": "dur_pt_bus",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 3321,
+    "sample_values": "0.0, 0.003611111, 0.004444444, 0.005277778, 0.005555556"
+  },
+  {
+    "column": "dur_pt_int_total",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 1076,
+    "sample_values": "0.0, 0.016666667, 0.058333333, 0.058611111, 0.058888889"
+  },
+  {
+    "column": "dur_pt_int_waiting",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 1110,
+    "sample_values": "0.0, 0.016666667, 0.056944444, 0.058333333, 0.058611111"
+  },
+  {
+    "column": "dur_pt_int_walking",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 499,
+    "sample_values": "0.0, 0.000277778, 0.000555556, 0.000833333, 0.001111111"
+  },
+  {
+    "column": "pt_n_interchanges",
+    "dtype": "int64",
+    "non_null": 81086,
+    "n_unique": 5,
+    "sample_values": "0, 1, 2, 3, 4"
+  },
+  {
+    "column": "dur_driving",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 4560,
+    "sample_values": "0.000277778, 0.001111111, 0.004166667, 0.006666667, 0.006944444"
+  },
+  {
+    "column": "cost_transit",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 184,
+    "sample_values": "0.0, 0.75, 0.85, 0.95, 1.0"
+  },
+  {
+    "column": "cost_driving_total",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 1072,
+    "sample_values": "0.0, 0.02, 0.03, 0.04, 0.05"
+  },
+  {
+    "column": "cost_driving_fuel",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 617,
+    "sample_values": "0.0, 0.01, 0.02, 0.03, 0.04"
+  },
+  {
+    "column": "cost_driving_con_charge",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 2,
+    "sample_values": "0.0, 10.5"
+  },
+  {
+    "column": "driving_traffic_percent",
+    "dtype": "float64",
+    "non_null": 81086,
+    "n_unique": 50923,
+    "sample_values": "0.0, 0.00128205, 0.00170648, 0.00197628, 0.00208768"
+  }
+]

@@ -1,172 +1,198 @@
 # Runbook
 
-Guia operativa del entorno local del TFM en Windows/PowerShell.
+Guía operativa del entorno local. Todos los comandos asumen que el directorio
+de trabajo es la raíz del repositorio.
 
-## Rutas reales
+---
 
-- repo raiz: `F:/TFM`
-- simulador: `F:/TFM/movilidad-urbana-sim`
-- OSRM: `F:/TFM/osrm-clm`
-- OTP: `F:/TFM/otp-toledo`
-- LPMC: `F:/TFM/lpmc`
+## Primer arranque (repo recién clonado)
 
-## Datos esperados
+### Prerequisitos
 
-## Origen de los datos
+1. Docker Desktop instalado y en ejecución.
+2. Git LFS instalado (`git lfs install`). Los ficheros grandes ya deben estar
+   descargados (`git lfs pull` si no).
 
-- GTFS urbano de Toledo: NAP del Ministerio de Transportes y Movilidad Sostenible.
-- Red viaria de base: OpenStreetMap a traves del extracto de Castilla-La Mancha publicado por Geofabrik.
-- Perfiles OSRM utilizados en el preprocesado: `car.lua`, `bicycle.lua` y `foot.lua` incluidos en la imagen oficial de `osrm/osrm-backend`.
-
-### OSRM
-
-Cada perfil debe tener su propio dataset preparado:
-
-- `F:/TFM/osrm-clm/car/clm.osm.pbf`
-- `F:/TFM/osrm-clm/bike/clm.osm.pbf`
-- `F:/TFM/osrm-clm/foot/clm.osm.pbf`
-- `clm.osrm` y `clm.osrm.*` en cada carpeta
-
-### OTP
-
-En `F:/TFM/otp-toledo`:
-
-- `clm.osm.pbf`
-- `GTFS_Urbano_Toledo.zip`
-- `graph.obj`
-
-### GTFS backend
-
-El backend lee el GTFS extraido en:
-
-- `F:/TFM/movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo/`
-
-Si actualizas el zip:
+### Arranque
 
 ```powershell
-Expand-Archive -Path "f:/TFM/movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo.zip" -DestinationPath "f:/TFM/movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo" -Force
-```
-
-## Preprocesado OSRM
-
-Solo cuando cambie el `.osm.pbf`.
-
-Los comandos usan los perfiles oficiales incluidos en la imagen:
-
-- `/opt/car.lua`
-- `/opt/bicycle.lua`
-- `/opt/foot.lua`
-
-```powershell
-# CAR
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-extract -p /opt/car.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
-
-# BIKE
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-extract -p /opt/bicycle.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
-
-# FOOT
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-extract -p /opt/foot.lua /data/clm.osm.pbf
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
-docker run --rm -t -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
-```
-
-## Build OTP
-
-Solo cuando cambien OSM o GTFS:
-
-- OSM base: extracto de Castilla-La Mancha.
-- GTFS base: feed urbano de Toledo descargado del NAP.
-
-```powershell
-docker run --rm -v "f:/TFM/otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --build --save
-```
-
-## Arranque diario
-
-### Opcion recomendada
-
-```powershell
-cd f:/TFM
 docker compose up --build
 ```
 
-### Arranque manual
+El primer arranque tarda ~15-20 minutos mientras `osrm-setup` compila los
+grafos de enrutado. La secuencia automática es:
+
+1. `gtfs-init` extrae el ZIP del GTFS al directorio del backend (una sola vez).
+2. `osrm-setup` ejecuta extract → partition → customize para cada perfil OSRM
+   (una sola vez; los perfiles ya compilados se saltan).
+3. El resto de servicios arranca en paralelo.
+
+Los arranques posteriores son inmediatos.
+
+---
+
+## Arranques habituales
 
 ```powershell
-# OSRM
-docker run -d --name osrm-car  -p 5000:5000 -v "f:/TFM/osrm-clm/car:/data"  osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
-docker run -d --name osrm-bike -p 5001:5000 -v "f:/TFM/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
-docker run -d --name osrm-foot -p 5002:5000 -v "f:/TFM/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-routed --algorithm mld /data/clm.osrm
-
-# OTP
-docker run -d --name otp-toledo -p 8080:8080 -v "f:/TFM/otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --load --serve
-
-# Backend
-cd f:/TFM/movilidad-urbana-sim/backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
-
-# Frontend
-cd f:/TFM/movilidad-urbana-sim/frontend
-npm run dev
+docker compose up          # sin --build si el código no ha cambiado
+docker compose up --build  # con --build para recompilar imágenes
+docker compose down        # para parar y eliminar contenedores
 ```
+
+---
 
 ## URLs y puertos
 
-- backend: `http://127.0.0.1:8000`
-- health: `http://127.0.0.1:8000/health`
-- frontend: `http://127.0.0.1:5173`
-- otp debug: `http://127.0.0.1:8080`
-- otp plan: `http://localhost:8080/otp/routers/default/plan`
-- osrm car: `http://127.0.0.1:5000`
-- osrm bike: `http://127.0.0.1:5001`
-- osrm foot: `http://127.0.0.1:5002`
+| Servicio | URL |
+|---|---|
+| Simulador (frontend) | <http://127.0.0.1:5173> |
+| Backend API | <http://127.0.0.1:8000> |
+| Backend health | <http://127.0.0.1:8000/health> |
+| OpenTripPlanner | <http://127.0.0.1:8080> |
+| OSRM coche | <http://127.0.0.1:5000> |
+| OSRM bicicleta | <http://127.0.0.1:5001> |
+| OSRM a pie | <http://127.0.0.1:5002> |
 
-## Endpoints backend
+---
 
-- `POST /api/osrm/routes`
-- `POST /api/otp/routes`
-- `GET /api/gtfs/stops?limit=5000`
-- `GET /api/gtfs/routes`
-- `GET /api/gtfs/routes/{route_id}`
-- `GET /api/gtfs/routes/{route_id}/schedule?date=YYYY-MM-DD`
+## Endpoints del backend
 
-## LPMC
-
-Pipeline completo (solo necesario al reentrenar):
-
-```powershell
-cd f:/TFM/lpmc
-python 01_explore.py           # exploración del dataset
-python 02_preprocess.py        # genera data/preprocessed/LPMC_train.csv y LPMC_test.csv
-python 03_train_xgb.py         # entrena XGBoost -> models/xgb_lpmc.joblib
-python 04_train_rf.py          # entrena Random Forest -> models/rf_lpmc.joblib
-python 05_train_dnn.py         # entrena DNN PyTorch -> models/dnn_lpmc.pt + .joblib
-python 06_compare_models.py    # tabla comparativa Accuracy/GMPCA + LaTeX
+```
+GET  /health
+POST /api/osrm/routes
+POST /api/otp/routes
+GET  /api/gtfs/stops?limit=5000
+GET  /api/gtfs/routes
+GET  /api/gtfs/routes/{route_id}
+GET  /api/gtfs/routes/{route_id}/schedule?date=YYYY-MM-DD
+POST /api/lpmc/predict
+POST /api/lpmc/compare
+GET  /api/lpmc/model-info
 ```
 
-Tras reentrenar cualquier modelo, reiniciar el backend para limpiar caché:
+---
+
+## Datos y ficheros grandes (Git LFS)
+
+Los ficheros pesados viven en Git LFS. Al clonar el repo con LFS instalado
+se descargan automáticamente. Si los ficheros están ausentes:
+
+```bash
+git lfs pull
+```
+
+| Ruta | Tamaño | Propósito |
+|---|---|---|
+| `osrm-clm/clm.osm.pbf` | ~97 MB | Extracto OSM de Castilla-La Mancha |
+| `otp-toledo/graph.obj` | ~117 MB | Grafo OTP pre-compilado |
+| `otp-toledo/GTFS_Urbano_Toledo_2026.zip` | ~14 MB | Feed GTFS urbano de Toledo |
+| `lpmc/models/xgb_lpmc.joblib` | ~17 MB | Modelo XGBoost (modelo activo) |
+| `lpmc/models/dnn_lpmc.pt` | ~66 KB | Modelo DNN (PyTorch) |
+
+---
+
+## Reconstruir grafos OSRM
+
+Solo necesario si cambia el `.osm.pbf`. Borra los directorios de perfil y
+vuelve a arrancar; `osrm-setup` los reconstruye automáticamente:
 
 ```powershell
+Remove-Item -Recurse -Force osrm-clm\car, osrm-clm\bike, osrm-clm\foot
+docker compose up
+```
+
+O manualmente, perfil por perfil:
+
+```powershell
+# CAR
+docker run --rm -t -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-extract -p /opt/car.lua /data/clm.osm.pbf
+docker run --rm -t -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
+docker run --rm -t -v "$(pwd)/osrm-clm/car:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
+
+# BIKE
+docker run --rm -t -v "$(pwd)/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-extract -p /opt/bicycle.lua /data/clm.osm.pbf
+docker run --rm -t -v "$(pwd)/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
+docker run --rm -t -v "$(pwd)/osrm-clm/bike:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
+
+# FOOT
+docker run --rm -t -v "$(pwd)/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-extract -p /opt/foot.lua /data/clm.osm.pbf
+docker run --rm -t -v "$(pwd)/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-partition /data/clm.osrm
+docker run --rm -t -v "$(pwd)/osrm-clm/foot:/data" osrm/osrm-backend:latest osrm-customize /data/clm.osrm
+```
+
+Perfiles OSRM utilizados: `car.lua`, `bicycle.lua`, `foot.lua` (incluidos en
+la imagen oficial `osrm/osrm-backend`).
+
+---
+
+## Reconstruir grafo OTP
+
+Solo necesario si cambia el OSM o el GTFS. El `graph.obj` pre-compilado del
+LFS es suficiente para uso normal:
+
+```powershell
+docker run --rm -v "$(pwd)/otp-toledo:/var/opentripplanner" opentripplanner/opentripplanner:2.5.0 --build --save
+```
+
+---
+
+## Actualizar GTFS del backend
+
+El GTFS del backend se extrae automáticamente en el primer arranque desde el
+ZIP del LFS. Para forzar una re-extracción:
+
+```powershell
+Remove-Item -Recurse -Force "movilidad-urbana-sim\backend\data\gtfs\GTFS_Urbano_Toledo_2026"
+python scripts/gtfs_extract.py   # o vuelve a arrancar docker compose
+```
+
+---
+
+## Modelos LPMC
+
+### Modelo activo (XGBoost)
+
+Cargado automáticamente desde `lpmc/models/xgb_lpmc.joblib` (Git LFS).
+Configurado en `docker-compose.yml` mediante `LPMC_MODEL_VARIANT=xgb`.
+
+### Entrenar el Random Forest (opcional)
+
+El RF (~600 MB) no está en el repo. Para habilitarlo en `/api/lpmc/compare`:
+
+```powershell
+# Requiere el dataset LPMC (proporcionado por el tutor)
+cd lpmc
+python 02_preprocess.py    # genera data/preprocessed/
+python 04_train_rf.py      # escribe models/rf_lpmc.joblib (~15 min)
 docker compose restart backend
 ```
 
-Nota: los 3 modelos usan GroupKFold(n_splits=5) con household_id como grupo
-y StandardScaler ajustado solo sobre el fold de train. Las duraciones de OSRM/OTP
-se convierten de segundos a horas en build_route_features (LPMC usa horas).
-
-## Parada y logs
+### Reentrenar todos los modelos
 
 ```powershell
-docker stop osrm-car osrm-bike osrm-foot otp-toledo
-docker rm osrm-car osrm-bike osrm-foot otp-toledo
-docker ps
-docker logs -f osrm-car
-docker logs -f osrm-bike
-docker logs -f osrm-foot
-docker logs -f otp-toledo
+cd lpmc
+python 01_explore.py       # exploración EDA
+python 02_preprocess.py    # preprocesado
+python 03_train_xgb.py     # XGBoost → models/xgb_lpmc.joblib
+python 04_train_rf.py      # Random Forest → models/rf_lpmc.joblib
+python 05_train_dnn.py     # DNN PyTorch → models/dnn_lpmc.pt + .joblib
+python 06_compare_models.py  # tabla comparativa y métricas LaTeX
+docker compose restart backend
+```
+
+Nota: los tres modelos usan `GroupKFold(n_splits=5)` con `household_id` como
+grupo (solo para la partición, nunca como feature). Las duraciones de OSRM/OTP
+se convierten de segundos a horas antes de la inferencia (el dataset LPMC usa
+horas como unidad).
+
+---
+
+## Logs y diagnóstico
+
+```powershell
+docker compose logs -f backend
+docker compose logs -f osrm-setup
+docker compose logs -f gtfs-init
+docker compose logs -f otp
+docker compose ps
 ```

@@ -21,6 +21,8 @@ class StopRoute(BaseModel):
     id: str
     short_name: Optional[str] = None
     long_name: Optional[str] = None
+    color: Optional[str] = None
+    text_color: Optional[str] = None
 
 
 class GtfsStop(BaseModel):
@@ -54,10 +56,16 @@ class Point(BaseModel):
     lon: float
 
 
-class RouteDetails(BaseModel):
-    route: GtfsRoute
+class RouteVariant(BaseModel):
+    direction_id: Optional[int] = None
+    headsign: Optional[str] = None
     stops: List[RouteStop]
     shape: Optional[List[Point]] = None
+
+
+class RouteDetails(BaseModel):
+    route: GtfsRoute
+    variants: List[RouteVariant]
 
 
 class DirectionSchedule(BaseModel):
@@ -111,6 +119,8 @@ def get_stops(
                     id=sr["id"],
                     short_name=sr.get("short_name"),
                     long_name=sr.get("long_name"),
+                    color=sr.get("color"),
+                    text_color=sr.get("text_color"),
                 )
                 for sr in stop_routes_index.get(s["stop_id"], [])
             ],
@@ -143,13 +153,11 @@ def get_routes():
 @router.get("/routes/{route_id}", response_model=RouteDetails)
 def get_route_details(route_id: str):
     """
-    Detalle de una ruta:
-    - Metadatos de la ruta
-    - Paradas ordenadas (de un viaje representativo)
-    - Geometría aproximada (shape) si existe
+    Detalle de una ruta: metadatos y lista de variantes (una por direction_id),
+    cada una con sus paradas ordenadas y geometría shape.
     """
     try:
-        route_raw, stops_raw, geometry_raw = gtfs_loader.get_route_with_stops(route_id)
+        route_raw, variants_raw = gtfs_loader.get_route_with_stops(route_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Route not found")
 
@@ -164,23 +172,28 @@ def get_route_details(route_id: str):
         text_color=route_raw.get("text_color"),
     )
 
-    stops = [
-        RouteStop(
-            id=s["stop_id"],
-            name=s["name"],
-            desc=s["desc"],
-            lat=s["lat"],
-            lon=s["lon"],
-            sequence=s["sequence"],
-        )
-        for s in stops_raw
-    ]
+    variants = []
+    for v in variants_raw:
+        stops = [
+            RouteStop(
+                id=s["stop_id"],
+                name=s["name"],
+                desc=s["desc"],
+                lat=s["lat"],
+                lon=s["lon"],
+                sequence=s["sequence"],
+            )
+            for s in v["stops"]
+        ]
+        shape = [Point(lat=p["lat"], lon=p["lon"]) for p in v["geometry"]] if v["geometry"] else None
+        variants.append(RouteVariant(
+            direction_id=v["direction_id"],
+            headsign=v["headsign"],
+            stops=stops,
+            shape=shape,
+        ))
 
-    shape = None
-    if geometry_raw:
-        shape = [Point(lat=p["lat"], lon=p["lon"]) for p in geometry_raw]
-
-    return RouteDetails(route=route, stops=stops, shape=shape)
+    return RouteDetails(route=route, variants=variants)
 
 
 @router.get("/routes/{route_id}/schedule", response_model=RouteSchedule)
