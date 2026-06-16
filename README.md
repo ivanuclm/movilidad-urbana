@@ -29,7 +29,7 @@ Developed as a Master's thesis project at the University of Castilla-La Mancha
 - Explore bus lines, stops and timetables in the GTFS panel.
 - Run travel mode choice inference with an XGBoost model trained on the
   London Passenger Mode Choice (LPMC) dataset, and optionally compare with
-  a Random Forest and a DNN.
+  a DNN and a Random Forest.
 
 ---
 
@@ -46,8 +46,8 @@ Developed as a Master's thesis project at the University of Castilla-La Mancha
 
 ```bash
 git lfs install                  # one-time setup — must run BEFORE cloning
-git clone https://github.com/ivanuclm/urban-mobility-sim.git
-cd urban-mobility-sim
+git clone https://github.com/ivanuclm/movilidad-urbana.git
+cd movilidad-urbana
 docker compose up --build
 ```
 
@@ -79,6 +79,21 @@ docker compose up --build
 
 ---
 
+## Common operations
+
+```bash
+docker compose up            # start all services (fast after first run)
+docker compose up --build    # rebuild images and start (use after code changes)
+docker compose down          # stop and remove containers
+docker compose logs -f backend      # stream backend logs
+docker compose logs -f osrm-setup   # check graph compilation progress
+docker compose logs -f gtfs-init    # check GTFS extraction
+docker compose logs -f otp          # OpenTripPlanner logs
+docker compose ps                   # list container status
+```
+
+---
+
 ## Services
 
 | Service | URL |
@@ -90,6 +105,26 @@ docker compose up --build
 | OSRM — car | http://127.0.0.1:5000 |
 | OSRM — cycling | http://127.0.0.1:5001 |
 | OSRM — foot | http://127.0.0.1:5002 |
+
+---
+
+## API endpoints
+
+All routing and inference requests go through the FastAPI backend. The full
+OpenAPI documentation is available at http://127.0.0.1:8000/docs.
+
+```
+GET  /health
+POST /api/osrm/routes
+POST /api/otp/routes
+GET  /api/gtfs/stops?limit=5000
+GET  /api/gtfs/routes
+GET  /api/gtfs/routes/{route_id}
+GET  /api/gtfs/routes/{route_id}/schedule?date=YYYY-MM-DD
+POST /api/lpmc/predict
+POST /api/lpmc/compare
+GET  /api/lpmc/model-info
+```
 
 ---
 
@@ -146,14 +181,18 @@ downloaded automatically when you clone with LFS installed.
 
 ## Travel mode choice models
 
-`/api/lpmc/predict` uses XGBoost by default. `/api/lpmc/compare` runs all
-available models simultaneously and skips any that are not present.
+Two pre-trained models are included via Git LFS and ready to use out of the
+box. No training required for normal operation.
 
 | Model | File | Included | Notes |
 |---|---|---|---|
-| XGBoost | `xgb_lpmc.joblib` | Yes (LFS) | Active model, best accuracy |
-| DNN (PyTorch) | `dnn_lpmc.pt` | Yes (LFS) | Used in /compare |
-| Random Forest | `rf_lpmc.joblib` | No | Train locally (see below) |
+| XGBoost | `xgb_lpmc.joblib` | **Yes (LFS)** | Active model, best accuracy (~73% test) |
+| DNN (PyTorch) | `dnn_lpmc.pt` | **Yes (LFS)** | Available in /compare |
+| Random Forest | `rf_lpmc.joblib` | No (~600 MB) | Train locally (optional, see below) |
+
+`/api/lpmc/predict` uses XGBoost by default (`LPMC_MODEL_VARIANT=xgb` in
+`docker-compose.yml`). `/api/lpmc/compare` runs all available models
+simultaneously and silently skips any that are not present on disk.
 
 ### Enabling the Random Forest (optional)
 
@@ -167,8 +206,26 @@ python 04_train_rf.py        # writes models/rf_lpmc.joblib  (~15 min)
 docker compose restart backend
 ```
 
-If the file is absent, `/api/lpmc/compare` returns XGBoost and DNN results
-only — no error.
+### Retraining all models from scratch
+
+The full pipeline runs six scripts in sequence. The LPMC dataset is required
+(not redistributable — contact the thesis supervisor).
+
+```bash
+cd lpmc
+python 01_explore.py           # exploratory data analysis
+python 02_preprocess.py        # feature engineering and preprocessing
+python 03_train_xgb.py         # XGBoost → models/xgb_lpmc.joblib
+python 04_train_rf.py          # Random Forest → models/rf_lpmc.joblib (~15 min)
+python 05_train_dnn.py         # DNN (PyTorch) → models/dnn_lpmc.pt + .joblib
+python 06_compare_models.py    # comparison table and LaTeX metrics
+docker compose restart backend
+```
+
+All three models use `GroupKFold(n_splits=5)` with `household_id` as the
+grouping key (train/test split only — `household_id` is never used as a
+feature). Durations from OSRM and OTP are converted from seconds to hours
+before inference to match the units in the LPMC dataset.
 
 ---
 

@@ -23,7 +23,7 @@ Mancha (ESIIAB, UCLM).
   el feed GTFS urbano de Toledo.
 - Exploración de líneas, paradas y horarios en el panel GTFS.
 - Inferencia de elección modal con XGBoost entrenado sobre el dataset LPMC,
-  con la opción de comparar con Random Forest y DNN.
+  con la opción de comparar con DNN y Random Forest.
 
 ---
 
@@ -40,8 +40,8 @@ Mancha (ESIIAB, UCLM).
 
 ```bash
 git lfs install                  # configuración única — ejecutar ANTES de clonar
-git clone https://github.com/ivanuclm/urban-mobility-sim.git
-cd urban-mobility-sim
+git clone https://github.com/ivanuclm/movilidad-urbana.git
+cd movilidad-urbana
 docker compose up --build
 ```
 
@@ -72,6 +72,21 @@ docker compose up --build
 
 ---
 
+## Operaciones habituales
+
+```bash
+docker compose up            # arrancar todos los servicios (rápido desde la 2ª vez)
+docker compose up --build    # reconstruir imágenes y arrancar (tras cambios en el código)
+docker compose down          # parar y eliminar contenedores
+docker compose logs -f backend      # ver logs del backend en tiempo real
+docker compose logs -f osrm-setup   # seguir la compilación de los grafos
+docker compose logs -f gtfs-init    # seguir la extracción del GTFS
+docker compose logs -f otp          # logs de OpenTripPlanner
+docker compose ps                   # estado de los contenedores
+```
+
+---
+
 ## Servicios
 
 | Servicio | URL |
@@ -83,6 +98,26 @@ docker compose up --build
 | OSRM coche | http://127.0.0.1:5000 |
 | OSRM bicicleta | http://127.0.0.1:5001 |
 | OSRM a pie | http://127.0.0.1:5002 |
+
+---
+
+## Endpoints del API
+
+Todas las peticiones de enrutado e inferencia pasan por el backend FastAPI.
+La documentación OpenAPI completa está disponible en http://127.0.0.1:8000/docs.
+
+```
+GET  /health
+POST /api/osrm/routes
+POST /api/otp/routes
+GET  /api/gtfs/stops?limit=5000
+GET  /api/gtfs/routes
+GET  /api/gtfs/routes/{route_id}
+GET  /api/gtfs/routes/{route_id}/schedule?date=YYYY-MM-DD
+POST /api/lpmc/predict
+POST /api/lpmc/compare
+GET  /api/lpmc/model-info
+```
 
 ---
 
@@ -140,15 +175,18 @@ regular. Se descargan automáticamente al clonar con LFS instalado.
 
 ## Modelos de elección modal
 
-`/api/lpmc/predict` usa XGBoost por defecto. `/api/lpmc/compare` ejecuta
-todos los modelos disponibles simultáneamente y omite los que no estén
-presentes.
+Dos modelos pre-entrenados se incluyen vía Git LFS y están listos para usar
+sin necesidad de entrenar nada.
 
 | Modelo | Fichero | Incluido | Notas |
 |---|---|---|---|
-| XGBoost | `xgb_lpmc.joblib` | Sí (LFS) | Modelo activo, mejor accuracy |
-| DNN (PyTorch) | `dnn_lpmc.pt` | Sí (LFS) | Usado en /compare |
-| Random Forest | `rf_lpmc.joblib` | No | Entrenar localmente (ver abajo) |
+| XGBoost | `xgb_lpmc.joblib` | **Sí (LFS)** | Modelo activo, mejor accuracy (~73% test) |
+| DNN (PyTorch) | `dnn_lpmc.pt` | **Sí (LFS)** | Disponible en /compare |
+| Random Forest | `rf_lpmc.joblib` | No (~600 MB) | Entrenar localmente (opcional, ver abajo) |
+
+`/api/lpmc/predict` usa XGBoost por defecto (`LPMC_MODEL_VARIANT=xgb` en
+`docker-compose.yml`). `/api/lpmc/compare` ejecuta todos los modelos
+disponibles simultáneamente y omite silenciosamente los que no estén en disco.
 
 ### Activar el Random Forest (opcional)
 
@@ -162,8 +200,26 @@ python 04_train_rf.py        # escribe models/rf_lpmc.joblib  (~15 min)
 docker compose restart backend
 ```
 
-Si el fichero no existe, `/api/lpmc/compare` devuelve solo resultados de
-XGBoost y DNN, sin ningún error.
+### Reentrenar todos los modelos desde cero
+
+El pipeline completo ejecuta seis scripts en secuencia. El dataset LPMC es
+necesario (no redistribuible — contacta con el tutor del TFM).
+
+```bash
+cd lpmc
+python 01_explore.py           # análisis exploratorio de datos
+python 02_preprocess.py        # ingeniería de features y preprocesado
+python 03_train_xgb.py         # XGBoost → models/xgb_lpmc.joblib
+python 04_train_rf.py          # Random Forest → models/rf_lpmc.joblib (~15 min)
+python 05_train_dnn.py         # DNN (PyTorch) → models/dnn_lpmc.pt + .joblib
+python 06_compare_models.py    # tabla comparativa y métricas en LaTeX
+docker compose restart backend
+```
+
+Los tres modelos usan `GroupKFold(n_splits=5)` con `household_id` como clave
+de agrupación (solo para la partición train/test — `household_id` nunca se
+usa como feature). Las duraciones de OSRM y OTP se convierten de segundos a
+horas antes de la inferencia para coincidir con las unidades del dataset LPMC.
 
 ---
 
@@ -199,6 +255,8 @@ rm -rf movilidad-urbana-sim/backend/data/gtfs/GTFS_Urbano_Toledo_2026
 # Windows PowerShell
 Remove-Item -Recurse -Force "movilidad-urbana-sim\backend\data\gtfs\GTFS_Urbano_Toledo_2026"
 ```
+
+Vuelve a ejecutar `docker compose up`.
 
 ---
 
