@@ -72,9 +72,6 @@ LPMC_dataset(in).csv
 
 # ── LPMC models ───────────────────────────────────────────────────────────────
 # Active models (xgb_lpmc.joblib, dnn_lpmc.*) are tracked via LFS (.gitattributes)
-# RF is optional — train locally with: python lpmc/04_train_rf.py
-lpmc/models/rf_lpmc.joblib
-lpmc/models/rf_lpmc_scaler.joblib
 # Old / backup model variants (superseded by xgb_lpmc.joblib)
 lpmc/models/xgb_lpmc_baseline*.joblib
 lpmc/models/xgb_lpmc_tuned.joblib
