@@ -36,6 +36,14 @@ PROCESSED_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def main() -> None:
+    if not RAW_PATH.exists():
+        raise FileNotFoundError(
+            f"Dataset not found: {RAW_PATH}\n"
+            "Download the LPMC dataset from the publisher (free access):\n"
+            "  Paper:   https://doi.org/10.1680/jsmic.17.00018\n"
+            "  CSV:     https://www.emerald.com/jsmic/article-supplement/408759/csv/dataset/\n"
+            f"Place the downloaded CSV at: {RAW_PATH}"
+        )
     print(f"Leyendo dataset bruto desde: {RAW_PATH}")
     df = pd.read_csv(RAW_PATH)
 

@@ -170,45 +170,39 @@ regular. Se descargan automáticamente al clonar con LFS instalado.
 | `otp-toledo/graph.obj` | ~117 MB | Grafo OTP pre-compilado |
 | `otp-toledo/GTFS_Urbano_Toledo_2026.zip` | ~14 MB | Feed GTFS urbano de Toledo |
 | `lpmc/models/xgb_lpmc.joblib` | ~17 MB | Modelo XGBoost de elección modal |
+| `lpmc/models/rf_lpmc.joblib` | ~600 MB | Modelo Random Forest de elección modal |
 | `lpmc/models/dnn_lpmc.pt` | ~66 KB | Modelo DNN de elección modal (PyTorch) |
 
 ---
 
 ## Modelos de elección modal
 
-Dos modelos pre-entrenados se incluyen vía Git LFS y están listos para usar
-sin necesidad de entrenar nada.
+Los tres modelos se incluyen vía Git LFS y están listos para usar sin necesidad
+de entrenar nada.
 
 | Modelo | Fichero | Incluido | Notas |
 |---|---|---|---|
 | XGBoost | `xgb_lpmc.joblib` | **Sí (LFS)** | Modelo activo, mejor accuracy (~73% test) |
 | DNN (PyTorch) | `dnn_lpmc.pt` | **Sí (LFS)** | Disponible en /compare |
-| Random Forest | `rf_lpmc.joblib` | No (~600 MB) | Entrenar localmente (opcional, ver abajo) |
+| Random Forest | `rf_lpmc.joblib` | **Sí (LFS, ~600 MB)** | Disponible en /compare |
 
 `/api/lpmc/predict` usa XGBoost por defecto (`LPMC_MODEL_VARIANT=xgb` en
-`docker-compose.yml`). `/api/lpmc/compare` ejecuta todos los modelos
-disponibles simultáneamente y omite silenciosamente los que no estén en disco.
-
-### Activar el Random Forest (opcional)
-
-El modelo RF (~600 MB) no está incluido en el repositorio. Para activarlo:
-
-```bash
-# Requiere el dataset LPMC — contacta con el tutor del proyecto
-cd lpmc
-python 02_preprocess.py      # genera data/preprocessed/
-python 04_train_rf.py        # escribe models/rf_lpmc.joblib  (~15 min)
-docker compose restart backend
-```
+`docker-compose.yml`). `/api/lpmc/compare` ejecuta los tres modelos simultáneamente.
 
 ### Reentrenar todos los modelos desde cero
 
 El pipeline completo ejecuta seis scripts en secuencia. Se requiere Python
-3.10+ instalado localmente. El dataset LPMC es necesario (no redistribuible
-— contacta con el tutor del TFM).
+3.10+ instalado localmente. El dataset LPMC tiene acceso libre a través del
+editor:
+
+- Paper: https://doi.org/10.1680/jsmic.17.00018
+- Descarga CSV: https://www.emerald.com/jsmic/article-supplement/408759/csv/dataset/
+
+Coloca el fichero descargado en `lpmc/data/raw/LPMC_dataset.csv`.
 
 ```bash
 cd lpmc
+pip install -r requirements.txt   # instalar dependencias
 python 01_explore.py           # análisis exploratorio de datos
 python 02_preprocess.py        # ingeniería de features y preprocesado
 python 03_train_xgb.py         # XGBoost → models/xgb_lpmc.joblib
@@ -299,7 +293,7 @@ imagen oficial `osrm/osrm-backend` — no hace falta descargar nada aparte.
 |---|---|
 | GTFS urbano de Toledo | [NAP — Ministerio de Transportes](https://nap.transportes.gob.es/Files/Detail/1377) |
 | Red viaria OSM (CLM) | [Geofabrik](https://download.geofabrik.de/europe/spain/castilla-la-mancha.html) |
-| Dataset LPMC | Hillel et al. (2018), proporcionado por el tutor |
+| Dataset LPMC | [Hillel et al. (2018)](https://doi.org/10.1680/jsmic.17.00018) — acceso libre, [descargar CSV](https://www.emerald.com/jsmic/article-supplement/408759/csv/dataset/) |
 
 ---
 
