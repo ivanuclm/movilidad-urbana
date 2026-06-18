@@ -8,7 +8,7 @@ import {
   CircleMarker,
   Popup,
 } from "react-leaflet";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import L from "leaflet";
 
 const defaultCenter: [number, number] = [39.86251, -4.02726]; // Centro en Toledo
@@ -60,7 +60,7 @@ const destinationIcon = L.divIcon({
 });
 
 type UiMode = "driving" | "cycling" | "foot" | "transit";
-type BasemapMode = "light" | "color" | "relief" | "satellite";
+type BasemapMode = "light" | "color" | "osm" | "relief" | "satellite" | "pnoa";
 
 type Point = { lat: number; lon: number };
 
@@ -161,6 +161,19 @@ function MapInteractionHandler({
   return null;
 }
 
+function BasemapZoomSnapper({ basemap }: { basemap: BasemapMode }) {
+  const map = useMap();
+  const prev = useRef(basemap);
+  useEffect(() => {
+    if (prev.current === basemap) return;
+    prev.current = basemap;
+    const z = map.getZoom();
+    const rounded = Math.round(z);
+    if (z !== rounded) map.setZoom(rounded, { animate: false });
+  }, [basemap, map]);
+  return null;
+}
+
 function FlyToHandler({ target, onDone }: { target: Point | null | undefined; onDone?: () => void }) {
   const map = useMap();
   useEffect(() => {
@@ -198,6 +211,10 @@ export function MapView({
       attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
     },
     color: {
+      url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+    },
+    osm: {
       url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
       attribution: "&copy; OpenStreetMap contributors",
     },
@@ -210,9 +227,22 @@ export function MapView({
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       attribution: "Tiles &copy; Esri",
     },
+    pnoa: {
+      url: "https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+      attribution: "&copy; Instituto Geográfico Nacional de España",
+    },
   };
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const routeMarkerRefs = useRef<Map<string, L.CircleMarker>>(new Map());
+
+  useEffect(() => {
+    if (!highlightedStopId) return;
+    const t = setTimeout(() => {
+      routeMarkerRefs.current.get(highlightedStopId)?.openPopup();
+    }, 900);
+    return () => clearTimeout(t);
+  }, [highlightedStopId]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -243,7 +273,8 @@ export function MapView({
 
   return (
     <>
-    <MapContainer center={defaultCenter} zoom={13} className="map-container">
+    <MapContainer center={defaultCenter} zoom={13} zoomSnap={0.25} wheelPxPerZoomLevel={120} className="map-container">
+      <BasemapZoomSnapper basemap={basemap} />
       <FlyToHandler target={flyTarget} onDone={onFlyDone} />
       <TileLayer
         attribution={basemapConfig[basemap].attribution}
@@ -378,14 +409,50 @@ export function MapView({
               key={`route-${s.id}`}
               center={[s.lat, s.lon]}
               radius={isHighlighted ? 8 : 5}
+              eventHandlers={{
+                add: (e) => { routeMarkerRefs.current.set(s.id, e.target as L.CircleMarker); },
+                remove: () => { routeMarkerRefs.current.delete(s.id); },
+              }}
               pathOptions={{
                 color: transitRouteColor || '#f97316',
                 weight: 2,
                 fillColor: isHighlighted ? transitRouteColor || '#f97316' : 'white',
                 fillOpacity: isHighlighted ? 1 : 0,
-                interactive: false,
               }}
-            />
+            >
+              <Popup minWidth={190} className="stop-popup">
+                <div className="stop-popup__inner">
+                  <div className="stop-popup__name">{s.name}</div>
+                  {s.code && <div className="stop-popup__code">Parada {s.code}</div>}
+                  {s.routes && s.routes.length > 0 && (
+                    <div className="stop-popup__routes">
+                      <div className="stop-popup__routes-label">Líneas</div>
+                      <div className="stop-popup__chips">
+                        {dedupeRoutes(s.routes).map((r) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            className="stop-route-chip"
+                            style={{
+                              background: r.color ? `#${r.color}` : hslForKey(r.short_name || r.id),
+                              color: r.text_color ? `#${r.text_color}` : 'white',
+                            }}
+                            title={r.long_name || r.short_name || r.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onSelectTransitRoute?.(r.id, s.id);
+                            }}
+                          >
+                            {r.short_name || r.id}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
           );
         })}
     </MapContainer>

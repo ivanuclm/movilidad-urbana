@@ -1,7 +1,10 @@
-﻿from typing import Literal
+﻿import os
+import re
+from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.services.lpmc_inference import run_lpmc_compare, run_lpmc_debug_features, run_lpmc_inference
 
@@ -36,6 +39,18 @@ class LpmcPredictRequest(BaseModel):
     destination: Point
     user_profile: UserProfile
     itinerary_index: int | None = Field(default=None, ge=0)
+    model_variant: str | None = None
+
+    @field_validator("model_variant")
+    @classmethod
+    def validate_model_variant(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not re.match(r"^[a-z0-9_]{1,32}$", v):
+            raise ValueError(
+                "model_variant debe contener solo letras minúsculas, dígitos o guiones bajos (máx. 32 chars)"
+            )
+        return v
 
 
 class LpmcPredictResponse(BaseModel):
@@ -70,6 +85,27 @@ async def compare_lpmc_models(body: LpmcPredictRequest):
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Error interno en comparación LPMC: {exc}")
+
+
+@router.get("/models")
+def list_lpmc_models():
+    """Descubre dinámicamente las variantes de modelo disponibles en disco.
+
+    Escanea lpmc/models/ buscando pares {nombre}_lpmc.joblib + {nombre}_lpmc_scaler.joblib.
+    Cualquier nombre que siga el convenio aparece como variante disponible, lo que permite
+    añadir modelos custom sin modificar el código.
+    """
+    models_dir = Path(__file__).resolve().parents[4] / "lpmc" / "models"
+    available: list[str] = []
+    if models_dir.exists():
+        for f in sorted(models_dir.glob("*_lpmc.joblib")):
+            name = f.stem.removesuffix("_lpmc")
+            if name and (models_dir / f"{name}_lpmc_scaler.joblib").exists():
+                available.append(name)
+    return {
+        "available": available,
+        "default_variant": os.environ.get("LPMC_MODEL_VARIANT", "xgb").strip().lower(),
+    }
 
 
 @router.post("/debug-features")

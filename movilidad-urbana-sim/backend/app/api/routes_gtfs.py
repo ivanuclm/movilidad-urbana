@@ -181,7 +181,18 @@ def get_route_details(route_id: str):
                 desc=s["desc"],
                 lat=s["lat"],
                 lon=s["lon"],
+                code=s.get("code"),
                 sequence=s["sequence"],
+                routes=[
+                    StopRoute(
+                        id=sr["id"],
+                        short_name=sr.get("short_name"),
+                        long_name=sr.get("long_name"),
+                        color=sr.get("color"),
+                        text_color=sr.get("text_color"),
+                    )
+                    for sr in s.get("routes", [])
+                ],
             )
             for s in v["stops"]
         ]

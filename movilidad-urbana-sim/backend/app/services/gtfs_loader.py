@@ -300,6 +300,8 @@ def get_route_with_stops(route_id: str) -> Tuple[dict, List[dict]]:
                 "desc": stop["desc"],
                 "lat": stop["lat"],
                 "lon": stop["lon"],
+                "code": stop.get("code"),
+                "routes": GTFS_DATA.stop_routes.get(stop["stop_id"], []),
                 "sequence": st["sequence"],
             })
 

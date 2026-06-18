@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MapView } from "./components/MapView";
 import "./App.css";
@@ -8,7 +8,7 @@ const API_BASE_URL =
 
 type Profile = "driving" | "cycling" | "foot";
 type UiMode = Profile | "transit";
-type BasemapMode = "light" | "color" | "relief" | "satellite";
+type BasemapMode = "light" | "color" | "osm" | "relief" | "satellite" | "pnoa";
 
 type Point = { lat: number; lon: number };
 
@@ -121,6 +121,7 @@ type TransitRouteSchedule = {
   directions: TransitDirectionSchedule[];
 };
 
+type LpmcVariant = string;
 type LpmcPurpose = "B" | "HBE" | "HBO" | "HBW" | "NHBO";
 type LpmcFuel = "Average" | "Diesel" | "Hybrid" | "Petrol";
 
@@ -148,6 +149,8 @@ type LpmcPredictResponse = {
     household_id_strategy: string;
     itinerary_index: number;
     total_itineraries: number;
+    pt_available: boolean;
+    short_trip: boolean;
   };
 };
 
@@ -169,7 +172,7 @@ type LpmcSingleResult = {
 type LpmcCompareResponse = {
   results: Record<"xgb" | "rf" | "dnn", LpmcSingleResult>;
   route_features: Record<string, number>;
-  model_info: { itinerary_index: number; total_itineraries: number };
+  model_info: { itinerary_index: number; total_itineraries: number; pt_available: boolean; short_trip: boolean };
 };
 
 async function fetchRoutes(
@@ -235,12 +238,13 @@ async function fetchLpmcPredict(
   origin: Point,
   destination: Point,
   user_profile: LpmcUserProfile,
-  itinerary_index?: number
+  itinerary_index?: number,
+  model_variant?: LpmcVariant
 ): Promise<LpmcPredictResponse> {
   const res = await fetch(`${API_BASE_URL}/api/lpmc/predict`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ origin, destination, user_profile, itinerary_index }),
+    body: JSON.stringify({ origin, destination, user_profile, itinerary_index, model_variant }),
   });
   if (!res.ok) throw new Error(`Error LPMC predict: ${res.status}`);
   return res.json();
@@ -250,12 +254,13 @@ async function fetchLpmcDebug(
   origin: Point,
   destination: Point,
   user_profile: LpmcUserProfile,
-  itinerary_index?: number
+  itinerary_index?: number,
+  model_variant?: LpmcVariant
 ): Promise<LpmcDebugResponse> {
   const res = await fetch(`${API_BASE_URL}/api/lpmc/debug-features`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ origin, destination, user_profile, itinerary_index }),
+    body: JSON.stringify({ origin, destination, user_profile, itinerary_index, model_variant }),
   });
   if (!res.ok) throw new Error(`Error LPMC debug: ${res.status}`);
   return res.json();
@@ -292,11 +297,43 @@ const DAY_OPTIONS: { value: number; label: string }[] = [
   { value: 7, label: "Domingo" },
 ];
 
-const BASEMAP_OPTIONS: { value: BasemapMode; label: string }[] = [
-  { value: "light", label: "Analítico" },
-  { value: "color", label: "Color" },
-  { value: "relief", label: "Relieve" },
-  { value: "satellite", label: "Satélite" },
+const BASEMAP_OPTIONS: { value: BasemapMode; label: string; thumb: string; credit: string }[] = [
+  {
+    value: "light",
+    label: "B&N",
+    thumb: "https://a.basemaps.cartocdn.com/light_all/11/1001/775.png",
+    credit: "© OpenStreetMap · CARTO",
+  },
+  {
+    value: "color",
+    label: "Color",
+    thumb: "https://a.basemaps.cartocdn.com/rastertiles/voyager/11/1001/775.png",
+    credit: "© OpenStreetMap · CARTO",
+  },
+  {
+    value: "relief",
+    label: "Topográfico",
+    thumb: "https://a.tile.opentopomap.org/11/1001/775.png",
+    credit: "© OpenStreetMap · OpenTopoMap",
+  },
+  {
+    value: "satellite",
+    label: "Satélite",
+    thumb: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/11/775/1001",
+    credit: "© Esri",
+  },
+  {
+    value: "osm",
+    label: "OSM",
+    thumb: "https://tile.openstreetmap.org/11/1001/775.png",
+    credit: "© OpenStreetMap",
+  },
+  {
+    value: "pnoa",
+    label: "PNOA",
+    thumb: "https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX=11&TILEROW=775&TILECOL=1001&FORMAT=image/jpeg",
+    credit: "© IGN España",
+  },
 ];
 
 const PROFILE_PRESETS: {
@@ -357,6 +394,22 @@ const PROFILE_PRESETS: {
     },
   },
 ];
+
+const MODEL_VARIANT_LABELS: Record<string, string> = {
+  xgb: "XGBoost",
+  rf:  "Random Forest",
+  dnn: "DNN",
+};
+
+function modelVariantLabel(v: string): string {
+  return MODEL_VARIANT_LABELS[v] ?? v.toUpperCase();
+}
+
+const KNOWN_MODEL_DESCRIPTIONS: Record<string, string> = {
+  xgb: "Gradient boosting. Mejor rendimiento general (acc. ~0.73 test).",
+  rf:  "Bosque aleatorio. Más robusto a outliers.",
+  dnn: "Red neuronal profunda con BatchNorm y Dropout.",
+};
 
 const LPMC_MODE_LABELS: Record<LpmcPredictResponse["predicted_mode"], string> = {
   walk: "A pie",
@@ -439,8 +492,9 @@ function App() {
   // El feed cubre 22/02/2026–22/05/2026; fuera de ese rango el backend devuelve vacío.
   // Mismo parche que OTP (date=2025-12-01): usar fecha fija dentro del rango del feed.
   const [scheduleDate, setScheduleDate] = useState<string>('2026-05-22');
-  const [activePanel, setActivePanel] = useState<'routes' | 'gtfs' | 'predict' | 'layers' | null>('routes');
+  const [activePanel, setActivePanel] = useState<'about' | 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings' | null>('about');
   const [showLpmcDebug, setShowLpmcDebug] = useState(false);
+  const [activeModel, setActiveModel] = useState<LpmcVariant>('xgb');
   const [lpmcProfile, setLpmcProfile] = useState<LpmcUserProfile>({
     purpose: "HBW",
     fueltype: "Average",
@@ -454,7 +508,7 @@ function App() {
     cost_driving_total: 3,
   });
 
-  function togglePanel(panel: 'routes' | 'gtfs' | 'predict' | 'layers') {
+  function togglePanel(panel: 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings') {
     setActivePanel((prev) => (prev === panel ? null : panel));
   }
 
@@ -491,18 +545,36 @@ function App() {
     number | undefined
   >({
     mutationFn: (idx) =>
-      fetchLpmcPredict(origin, destination, lpmcProfile, idx ?? transitItineraryIndex),
+      fetchLpmcPredict(origin, destination, lpmcProfile, idx ?? transitItineraryIndex, activeModel),
   });
 
   const lpmcDebugMutation = useMutation<LpmcDebugResponse, Error, number | undefined>({
     mutationFn: (idx) =>
-      fetchLpmcDebug(origin, destination, lpmcProfile, idx ?? transitItineraryIndex),
+      fetchLpmcDebug(origin, destination, lpmcProfile, idx ?? transitItineraryIndex, activeModel),
   });
 
   const lpmcCompareMutation = useMutation<LpmcCompareResponse, Error, number | undefined>({
     mutationFn: (idx) =>
       fetchLpmcCompare(origin, destination, lpmcProfile, idx ?? transitItineraryIndex),
   });
+
+  const lpmcModelsQuery = useQuery<{ available: string[]; default_variant: string }>({
+    queryKey: ["lpmc-models"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/api/lpmc/models`);
+      if (!res.ok) throw new Error("Error cargando disponibilidad de modelos");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const modelInitialized = useRef(false);
+  useEffect(() => {
+    if (!modelInitialized.current && lpmcModelsQuery.data) {
+      setActiveModel(lpmcModelsQuery.data.default_variant);
+      modelInitialized.current = true;
+    }
+  }, [lpmcModelsQuery.data]);
 
   const isCalculating = osrmMutation.isPending || transitMutation.isPending;
 
@@ -671,11 +743,11 @@ function App() {
       <aside className="sidebar">
         {/* ── Icon Rail ── */}
         <nav className="sidebar-rail">
-          <div className="rail-logo">
+          <button className="rail-logo" onClick={() => togglePanel('about')} title="Inicio">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="white">
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
             </svg>
-          </div>
+          </button>
 
           <button
             className={`rail-btn${activePanel === 'routes' ? ' rail-btn--active' : ''}`}
@@ -730,6 +802,19 @@ function App() {
             </span>
             <span className="rail-btn__label">Capas</span>
           </button>
+
+          <button
+            className={`rail-btn${activePanel === 'settings' ? ' rail-btn--active' : ''}`}
+            onClick={() => togglePanel('settings')}
+            title="Ajustes"
+          >
+            <span className="rail-btn__icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.22-.07.47.12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </span>
+            <span className="rail-btn__label">Ajustes</span>
+          </button>
         </nav>
 
         {/* ── Expanded Panel ── */}
@@ -737,10 +822,12 @@ function App() {
           <div className="sidebar-panel">
             <div className="panel-header">
               <h2 className="panel-title">
-                {activePanel === 'routes'  && 'Planificar ruta'}
-                {activePanel === 'gtfs'    && 'Red de transporte'}
-                {activePanel === 'predict' && 'Predicción modal'}
-                {activePanel === 'layers'  && 'Mapa base'}
+                {activePanel === 'about'    && 'Inicio'}
+                {activePanel === 'routes'   && 'Planificar ruta'}
+                {activePanel === 'gtfs'     && 'Red de transporte'}
+                {activePanel === 'predict'  && 'Predicción modal'}
+                {activePanel === 'layers'   && 'Mapa base'}
+                {activePanel === 'settings' && 'Ajustes'}
               </h2>
               <button className="panel-close" onClick={() => setActivePanel(null)} title="Cerrar">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -750,6 +837,54 @@ function App() {
             </div>
 
             <div className="panel-body">
+
+              {/* ════ ABOUT ════ */}
+              {activePanel === 'about' && (
+                <div className="about-panel">
+                  <div className="about-panel-hero">
+                    <div className="about-panel-logo">
+                      <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="about-panel-name">Simulador de Movilidad Urbana</div>
+                      <div className="about-panel-loc">Toledo</div>
+                    </div>
+                  </div>
+
+                  <p className="about-panel-desc">
+                    Prototipo web para analizar el impacto de políticas de transporte en
+                    el reparto modal. Combina enrutado viario real (OSRM), transporte
+                    público (OpenTripPlanner + GTFS Toledo) y modelos de Machine Learning
+                    entrenados con el dataset LPMC para predecir la elección entre a pie,
+                    bicicleta, transporte público y coche.
+                  </p>
+
+                  <div className="about-panel-section">Tecnologías</div>
+                  <ul className="about-panel-tech">
+                    <li><span className="about-badge">FastAPI</span>Backend y orquestación de servicios</li>
+                    <li><span className="about-badge">React + Leaflet</span>Interfaz web interactiva</li>
+                    <li><span className="about-badge">OSRM</span>Enrutado viario (coche, bici, a pie)</li>
+                    <li><span className="about-badge">OpenTripPlanner</span>Planificación multimodal con GTFS</li>
+                    <li><span className="about-badge">XGBoost · RF · DNN</span>Elección modal (LPMC)</li>
+                  </ul>
+
+                  <div className="about-panel-section">Créditos</div>
+                  <div className="about-panel-credits">
+                    <div className="about-panel-credit-row"><span>Autor</span><span>Iván Hernández</span></div>
+                    <div className="about-panel-credit-row"><span>Tutor</span><span>José Martín Baos</span></div>
+                    <div className="about-panel-credit-row"><span>Centro</span><span>ESIIAB, UCLM</span></div>
+                    <div className="about-panel-credit-row"><span>Dataset</span><span>LPMC — Hillel et al., 2018</span></div>
+                    <div className="about-panel-credit-row"><span>GTFS</span><span>Bus Urbano de Toledo, NAP</span></div>
+                    <div className="about-panel-credit-row"><span>Cartografía</span><span>© OpenStreetMap contributors</span></div>
+                  </div>
+
+                  <div className="about-panel-footer">
+                    Trabajo de Fin de Máster · MUII · Convocatoria ordinaria julio 2026
+                  </div>
+                </div>
+              )}
 
               {/* ════ ROUTES ════ */}
               {activePanel === 'routes' && (
@@ -894,10 +1029,6 @@ function App() {
               {activePanel === 'gtfs' && (
                 <>
                   {/* Controles siempre visibles */}
-                  <label className="stops-toggle">
-                    <input type="checkbox" checked={showGtfsStops} onChange={(e) => setShowGtfsStops(e.target.checked)} />
-                    Mostrar paradas en el mapa
-                  </label>
                   <div className="field-block" style={{ marginBottom: '2px' }}>
                     <span className="field-label">Fecha horarios</span>
                     <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
@@ -998,7 +1129,7 @@ function App() {
                                           <div className={`stop-row__dot${isTerminal ? ' stop-row__dot--terminal' : ''}${isHighlighted ? ' stop-row__dot--hl' : ''}`} />
                                           <div className={`stop-row__seg${isLast ? ' stop-row__seg--none' : ''}`} />
                                         </div>
-                                        <button className="stop-row__label" onClick={() => setFlyTarget({ lat: stop.lat, lon: stop.lon })}>
+                                        <button className="stop-row__label" onClick={() => { setFlyTarget({ lat: stop.lat, lon: stop.lon }); setHighlightedStopId(stop.id); }}>
                                           {stop.name}
                                         </button>
                                       </div>
@@ -1053,7 +1184,7 @@ function App() {
               {activePanel === 'predict' && (
                 <>
                   <div className="model-toolbar">
-                    <span className="status-pill">XGBoost activo</span>
+                    <span className="status-pill">{modelVariantLabel(activeModel)} activo</span>
                     <span className="status-note">Inferencia de elección modal.</span>
                   </div>
 
@@ -1137,6 +1268,17 @@ function App() {
 
                   {lpmcPredictMutation.error && <p className="error-text">{lpmcPredictMutation.error.message}</p>}
 
+                  {lpmcPredictMutation.data?.model_info?.short_trip && (
+                    <div className="short-trip-notice">
+                      Trayecto corto (&lt;500 m): se ha añadido un overhead de aparcamiento al coche.
+                    </div>
+                  )}
+                  {lpmcPredictMutation.data?.model_info?.pt_available === false && (
+                    <div className="pt-unavailable-notice">
+                      Sin servicio de bus en este trayecto: la probabilidad de transporte público ha sido suprimida.
+                    </div>
+                  )}
+
                   {lpmcPredictMutation.data && (
                     <div className="prediction-card">
                       <div style={{ fontWeight: 700, marginBottom: '10px', color: '#1a73e8', fontSize: '.95rem' }}>
@@ -1166,6 +1308,17 @@ function App() {
                   )}
 
                   {lpmcCompareMutation.error && <p className="error-text">{lpmcCompareMutation.error.message}</p>}
+
+                  {lpmcCompareMutation.data?.model_info?.short_trip && (
+                    <div className="short-trip-notice">
+                      Trayecto corto (&lt;500 m): se ha añadido un overhead de aparcamiento al coche.
+                    </div>
+                  )}
+                  {lpmcCompareMutation.data?.model_info?.pt_available === false && (
+                    <div className="pt-unavailable-notice">
+                      Sin servicio de bus en este trayecto: la probabilidad de transporte público ha sido suprimida.
+                    </div>
+                  )}
 
                   {lpmcCompareMutation.data && (() => {
                     const { results } = lpmcCompareMutation.data;
@@ -1238,10 +1391,76 @@ function App() {
                         className={`basemap-card${basemap === option.value ? ' basemap-card--active' : ''}`}
                         onClick={() => setBasemap(option.value)}
                       >
-                        <div className={`basemap-thumb basemap-thumb--${option.value}`} />
-                        <span>{option.label}</span>
+                        <img className="basemap-thumb" src={option.thumb} alt={option.label} loading="lazy" />
+                        <span className="basemap-label">{option.label}</span>
+                        <span className="basemap-credit">{option.credit}</span>
                       </button>
                     ))}
+                  </div>
+                </>
+              )}
+
+              {/* ════ SETTINGS ════ */}
+              {activePanel === 'settings' && (
+                <>
+                  {/* Visualización */}
+                  <div className="settings-section">
+                    <div className="settings-section-title">Visualización del mapa</div>
+                    <label className="stops-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showGtfsStops}
+                        onChange={(e) => setShowGtfsStops(e.target.checked)}
+                      />
+                      Mostrar paradas de bus en el mapa
+                    </label>
+                  </div>
+
+                  {/* Modelo activo */}
+                  <div className="settings-section">
+                    <div className="settings-section-title">Modelo de inferencia activo</div>
+                    <p className="settings-hint">
+                      El modelo seleccionado se usa con el botón "Inferir modo" en el panel IA.
+                      "Comparar modelos" siempre ejecuta los tres independientemente.
+                    </p>
+                    {(lpmcModelsQuery.data?.available ?? ["xgb", "rf", "dnn"]).map((variant) => {
+                      const isActive = activeModel === variant;
+                      return (
+                        <button
+                          key={variant}
+                          type="button"
+                          className={`model-option${isActive ? ' model-option--active' : ''}`}
+                          onClick={() => setActiveModel(variant)}
+                        >
+                          <span className="model-option__name">{modelVariantLabel(variant)}</span>
+                          <span className="model-option__desc">
+                            {KNOWN_MODEL_DESCRIPTIONS[variant] ?? "Modelo personalizado"}
+                          </span>
+                          {isActive && (
+                            <span className="model-badge model-badge--active">Activo</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Instrucciones modelo propio */}
+                  <div className="settings-section">
+                    <div className="settings-section-title">Añadir modelo propio</div>
+                    <details className="model-instructions">
+                      <summary>¿Cómo añadir un modelo entrenado?</summary>
+                      <div className="model-instructions-body">
+                        <p>Copia los dos artefactos en <code>lpmc/models/</code> siguiendo el convenio:</p>
+                        <pre>{`{nombre}_lpmc.joblib\n{nombre}_lpmc_scaler.joblib`}</pre>
+                        <p>El nombre puede ser cualquier combinación de letras minúsculas, dígitos y guiones bajos. El modelo aparece automáticamente en este panel sin reiniciar el contenedor.</p>
+                        <p>Formato del bundle para scikit-learn (XGBoost, RF, SVM…):</p>
+                        <pre>{`{ "model": <estimator>,\n  "feature_names": [...] }`}</pre>
+                        <p>Formato para PyTorch:</p>
+                        <pre>{`{ "pt_path": "ruta/modelo.pt",\n  "n_features": <int> }`}</pre>
+                        <p>Para que el modelo arranque seleccionado por defecto, establece <code>LPMC_MODEL_VARIANT: nombre</code> en el <code>docker-compose.yml</code> y reinicia el backend.</p>
+                        <p>Si los ficheros están fuera de <code>lpmc/models/</code>, usa <code>LPMC_MODEL_PATH</code> y <code>LPMC_SCALER_PATH</code> junto con <code>LPMC_MODEL_VARIANT</code>.</p>
+                      </div>
+                    </details>
                   </div>
                 </>
               )}
@@ -1250,6 +1469,7 @@ function App() {
           </div>
         )}
       </aside>
+
     </div>
   );
 }

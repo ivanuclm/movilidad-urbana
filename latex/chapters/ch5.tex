@@ -196,12 +196,26 @@ La capa GTFS expone cuatro endpoints que cubren las operaciones necesarias para 
 
 El feed de Toledo contiene 56 entradas en \texttt{routes.txt}, pero solo 25 líneas físicas distintas: el operador crea un \texttt{route\_id} independiente por cada combinación de dirección y variante de recorrido de una misma línea. La interfaz agrupa las entradas por nombre corto (\texttt{route\_short\_name}) y muestra únicamente las 25 líneas únicas, evitando duplicados en el catálogo visual.
 
-\subsection{Coloración de líneas}
+\subsection{Coloración de líneas y agrupación por sentido}
 \label{subsec:impl_gtfs_color}
 
-El feed GTFS de Toledo incluye los campos \texttt{route\_color} y \texttt{route\_text\_color} para todas sus líneas. La implementación inicial los ignoraba y calculaba colores propios mediante un hash sobre el identificador de ruta, con el consiguiente desajuste visual respecto a la identidad cromática del operador. La solución consiste en leer ambos campos directamente del feed y aplicarlos en el panel lateral y en los chips de parada, garantizando coherencia con la señalética oficial. Cuando el feed no incluya estos campos, se genera un color de respaldo mediante un hash polinómico sobre el nombre corto proyectado al espacio HSL con saturación del 70\,\% y luminosidad del 35\,\%, valores que aseguran contraste suficiente para texto sobre cualquier tono generado.
+El feed GTFS de Toledo incluye los campos \texttt{route\_color} y \texttt{route\_text\_color} en \texttt{routes.txt} para todas sus entradas. La función \texttt{routeColor()} los lee directamente y construye el código hexadecimal correspondiente, garantizando coherencia visual con la señalética del operador. Para feeds que no incluyan estos campos, la misma función genera un color de respaldo mediante un hash polinómico sobre el \texttt{route\_short\_name} (o el identificador de ruta si no existe nombre corto). El hash proyecta la cadena a un entero cuyo módulo 360 determina el tono; la saturación y la luminosidad se fijan a 70\,\% y 35\,\% respectivamente, valores que aseguran contraste suficiente para texto blanco superpuesto independientemente del tono generado. El mismo valor de entrada siempre produce el mismo color, por lo que la asignación es estable entre renders y sesiones. El Código~\ref{cod:gtfs_color} muestra las dos funciones.
 
-La Figura~\ref{fig:gtfs_paradas} muestra el panel Red GTFS junto al mapa. El catálogo se organiza en un acordeón donde cada fila representa una línea física identificada por nombre corto, color y nombre largo. Al expandir una entrada, el panel muestra: el trazado de la ruta sobre el mapa en el color oficial, un diagrama vertical de paradas inspirado en los paneles de andén (terminales como puntos rellenos, intermedias como aros huecos), y una tabla de salidas agrupada por hora. Cuando una línea tiene variantes en sentidos distintos, aparece una sublista con los headsigns de cada subtrayecto. Al pulsar sobre una parada del diagrama, el mapa ejecuta un desplazamiento animado (\texttt{flyTo}) hasta esa posición.
+\begin{lstlisting}[language=JavaScript, caption={Color de línea: feed GTFS como fuente primaria y hash determinista como respaldo.}, label={cod:gtfs_color}]
+function hslForKey(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(h) % 360}, 70%, 35%)`;
+}
+function routeColor(r: { color?: string | null; short_name?: string | null; id: string }): string {
+  if (r.color) return `#${r.color}`;
+  return hslForKey(r.short_name || r.id);
+}
+\end{lstlisting}
+
+El feed de Toledo contiene 56 entradas en \texttt{routes.txt} pero solo 25 líneas físicas distintas, ya que el operador registra cada sentido de circulación como un \texttt{route\_id} independiente con el mismo \texttt{route\_short\_name}. La interfaz deduplica las entradas por nombre corto para el catálogo visual y agrupa en un diccionario (\texttt{routeSiblingsByShortName}) los identificadores de ruta que comparten nombre. Cuando el usuario selecciona una línea, el índice de la variante activa se deriva de la posición del \texttt{route\_id} seleccionado dentro de la lista de rutas hermanas, de modo que un clic en un chip de parada del mapa, que conoce el \texttt{route\_id} exacto del servicio que pasa por esa parada, activa directamente el sentido correcto sin lógica adicional.
+
+La Figura~\ref{fig:gtfs_paradas} muestra el panel Red GTFS. El catálogo se organiza en un acordeón donde cada fila representa una línea física con su badge coloreado y nombre largo. Al expandir una entrada con varios sentidos, aparece una sublista de rutas hermanas con el identificador activo resaltado mediante un borde lateral del color de la línea. El panel muestra además un diagrama vertical de paradas inspirado en los paneles de andén: línea vertical del color de la línea con terminales como puntos rellenos, paradas intermedias como aros huecos y la parada de referencia resaltada en azul. Al pulsar sobre el nombre de una parada, el mapa ejecuta un desplazamiento animado (\texttt{flyTo}) hasta esa posición. Una tabla de salidas agrupada por hora completa la información de la ruta seleccionada.
 
 \begin{figure}[H]
   \centering
@@ -272,7 +286,13 @@ Las rutas viarias calculadas por OSRM se representan como polilíneas coloreadas
 
 La aplicación ofrece cuatro mapas base seleccionables: analítico (CartoDB Light, paleta desaturada que favorece la legibilidad de las rutas superpuestas), color estándar (OpenStreetMap), relieve con curvas de nivel (OpenTopoMap) y vista aérea (Esri World Imagery). La selección persiste mientras el usuario navega entre los distintos modos de transporte.
 
-Las paradas del feed GTFS se muestran como marcadores interactivos; al hacer clic en una parada se abre un popup con el nombre, el código identificador y las líneas que pasan por ella. Al seleccionar una línea desde el popup o desde el desplegable del panel lateral, el mapa dibuja el \textit{shape} de la ruta y el panel muestra la secuencia de paradas y los horarios del día seleccionado.
+Las paradas del feed GTFS se muestran como marcadores interactivos; al hacer clic en una parada se abre un popup con el nombre, el código identificador y las líneas que pasan por ella. Al seleccionar una línea desde el popup o desde el desplegable del panel lateral, el mapa dibuja el \textit{shape} de la ruta y el panel muestra la secuencia de paradas y los horarios del día seleccionado. Al hacer clic en una parada del listado lateral, la vista se desplaza hasta ella (\texttt{flyTo} a zoom~17) y, al concluir la animación, se abre automáticamente el popup correspondiente en el mapa.%
+% TODO Sprint 16 (18 jun 2026): popup auto-open implementado.
+% Mecanismo: setHighlightedStopId + setFlyTarget en App.tsx; useEffect en MapView
+% abre el popup a los 900ms via routeMarkerRefs (Map poblado con eventHandlers.add).
+% transitRouteStops ahora interactivos (eliminado interactive:false); backend enriquece
+% RouteStop con code y routes para que el popup tenga el mismo contenido que el de
+% las paradas genéricas. Revisar y pulir este párrafo al redactar §5.5 en detalle.
 
 \begin{figure}[htbp]
   \centering

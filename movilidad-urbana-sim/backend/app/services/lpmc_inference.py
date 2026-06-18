@@ -61,15 +61,33 @@ _ARTIFACTS_CACHE: dict[str, dict[str, Any]] = {}
 
 ALL_VARIANTS = ["xgb", "rf", "dnn"]
 
-# ── Plan A: penalización de features PT ─────────────────────────────────────
+# ── Plan A: penalización de features PT calibrada al scaler ─────────────────
 # Cuando OTP devuelve un itinerario walk-only (transit_legs_count == 0),
-# las features PT se inicializan a estos valores en lugar de 0, para que el
-# modelo asigne por sí mismo una probabilidad muy baja al modo PT.
-# Los valores superan ampliamente el rango del dataset LPMC (viajes urbanos
-# en Londres, máx. ~2 h en PT, raramente >3 intercambios).
+# estas features se sustituyen por raw_penalty = mean + _PT_PENALTY_Z * scale
+# usando las estadísticas del scaler de cada variante. Esto garantiza que el
+# valor llegue al modelo como z=_PT_PENALTY_Z exactamente, sin importar las
+# unidades originales ni el rango del dataset. z=5 está al límite superior de
+# la distribución de entrenamiento: los árboles lo enrutan al bucket extremo
+# y la DNN recibe un input dentro de su rango habitual (evita el colapso a
+# 100% coche que producía inyectar 10h → z≈65 directamente).
 # Ver _apply_pt_suppression() para el Plan B alternativo (post-inferencia).
-_PT_PENALTY_DURATION_H   = 10.0  # horas (>> máximo real en LPMC)
-_PT_PENALTY_INTERCHANGES = 20    # intercambios (>> máximo real)
+# ── Penalización de coche en trayectos cortos ────────────────────────────────
+# Para distancias < _SHORT_TRIP_THRESHOLD_M el tiempo de OSRM no incluye
+# buscar aparcamiento ni caminar desde el coche hasta el destino. Se añade
+# un overhead fijo a dur_driving que representa ese coste real, evitando que
+# el modelo sobreestime el coche en trayectos donde a pie es más racional.
+_SHORT_TRIP_THRESHOLD_M        = 500.0         # distancia crow-fly en metros
+_SHORT_TRIP_DRIVING_OVERHEAD_H = 10.0 / 60.0  # 10 min en horas
+
+_PT_FEATURE_NAMES = [
+    "dur_pt_access",
+    "dur_pt_rail",
+    "dur_pt_bus",
+    "dur_pt_int_waiting",
+    "dur_pt_int_walking",
+    "pt_n_interchanges",
+]
+_PT_PENALTY_Z = 5.0  # z-score objetivo tras scaler.transform()
 
 
 class TorchModalWrapper:
@@ -156,6 +174,10 @@ def _project_root() -> Path:
 def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
     """Devuelve (model_path, scaler_path) para la variante indicada.
 
+    Convenio de nombres: {variant}_lpmc.joblib y {variant}_lpmc_scaler.joblib
+    en el directorio lpmc/models/. Cualquier nombre de variante es válido,
+    lo que permite añadir modelos custom sin modificar el código.
+
     Para la variante activa por defecto (LPMC_MODEL_VARIANT), acepta
     sobreescritura mediante variables de entorno LPMC_MODEL_PATH y LPMC_SCALER_PATH.
     """
@@ -167,29 +189,17 @@ def _resolve_model_paths(variant: str) -> tuple[Path, Path]:
             return Path(model_override), Path(scaler_override)
 
     models_dir = _project_root() / "lpmc" / "models"
-    if variant == "rf":
-        model_candidates = [models_dir / "rf_lpmc.joblib"]
-        scaler_candidates = [models_dir / "rf_lpmc_scaler.joblib"]
-    elif variant == "dnn":
-        model_candidates = [models_dir / "dnn_lpmc.joblib"]
-        scaler_candidates = [models_dir / "dnn_lpmc_scaler.joblib"]
-    else:
-        # "xgb" (variante por defecto)
-        model_candidates = [models_dir / "xgb_lpmc.joblib"]
-        scaler_candidates = [models_dir / "xgb_lpmc_scaler.joblib"]
+    model_path = models_dir / f"{variant}_lpmc.joblib"
+    scaler_path = models_dir / f"{variant}_lpmc_scaler.joblib"
 
-    model_path = next((p for p in model_candidates if p.exists()), None)
-    if model_path is None:
+    if not model_path.exists():
         raise FileNotFoundError(
-            f"No se encontro modelo LPMC en: {[str(p) for p in model_candidates]}"
+            f"No se encontro modelo LPMC para la variante '{variant}': {model_path}"
         )
-
-    scaler_path = next((p for p in scaler_candidates if p.exists()), None)
-    if scaler_path is None:
+    if not scaler_path.exists():
         raise FileNotFoundError(
-            f"No se encontro scaler LPMC en: {[str(p) for p in scaler_candidates]}"
+            f"No se encontro scaler LPMC para la variante '{variant}': {scaler_path}"
         )
-
     return model_path, scaler_path
 
 
@@ -274,7 +284,18 @@ def _is_transit_leg(leg: dict) -> bool:
     return mode not in ("WALK", "BICYCLE", "CAR")
 
 
-def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) -> dict[str, float | int]:
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distancia en línea recta (crow-fly) entre dos puntos geográficos, en metros."""
+    import math
+    R = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return 2.0 * R * math.asin(math.sqrt(a))
+
+
+def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict, crow_fly_m: float | None = None) -> dict[str, float | int]:
     """Extrae las 10 variables de ruta a partir de las respuestas de OSRM y OTP.
 
     Conversión de unidades: OSRM y OTP devuelven duraciones en segundos.
@@ -348,17 +369,15 @@ def _build_route_features(osrm_results: dict[str, dict], otp_itinerary: dict) ->
         "dur_pt_int_walking": inter_walk * s2h,
         "pt_n_interchanges": max(transit_legs_count - 1, 0),
     }
-    pt_available = transit_legs_count > 0
+    # Overhead de aparcamiento para trayectos cortos: el tiempo OSRM no incluye
+    # buscar aparcamiento ni el acceso a pie desde el coche hasta el destino.
+    # Se usa la distancia crow-fly (línea recta entre origen y destino) como
+    # criterio porque es independiente del perfil de enrutado y refleja
+    # objetivamente si el trayecto es corto en términos de movilidad urbana.
+    if crow_fly_m is not None and crow_fly_m < _SHORT_TRIP_THRESHOLD_M:
+        features["dur_driving"] += _SHORT_TRIP_DRIVING_OVERHEAD_H
 
-    # Plan A: si no hay servicio PT, penalizar las features para que el modelo
-    # asigne ~0% a PT sin necesidad de post-procesar su salida.
-    if not pt_available:
-        features["dur_pt_access"]      = _PT_PENALTY_DURATION_H
-        features["dur_pt_bus"]         = _PT_PENALTY_DURATION_H
-        features["dur_pt_rail"]        = _PT_PENALTY_DURATION_H
-        features["dur_pt_int_waiting"] = _PT_PENALTY_DURATION_H
-        features["dur_pt_int_walking"] = _PT_PENALTY_DURATION_H
-        features["pt_n_interchanges"]  = _PT_PENALTY_INTERCHANGES
+    pt_available = transit_legs_count > 0
 
     return features, pt_available
 
@@ -445,27 +464,41 @@ def _apply_pt_suppression(prediction: dict, pt_available: bool) -> dict:
     }
 
 
-def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
+def _predict(x, feature_names: list[str], pt_available: bool = True, variant: str | None = None) -> dict:
     """Aplica el escalado parcial y ejecuta la inferencia del modelo.
 
     Solo se escalan las columnas de SCALED_FEATURES (variables continuas).
     Las variables binarias (female, driving_license, purpose_*, fueltype_*) y
     de conteo (pt_n_interchanges) no se escalan; el scaler fue ajustado solo
     sobre las columnas continuas durante el entrenamiento.
+
+    Si pt_available=False, las features PT se sustituyen por
+    mean + _PT_PENALTY_Z * scale antes de escalar, de modo que el modelo
+    recibe exactamente z=_PT_PENALTY_Z para esas features (Plan A calibrado).
     """
     import numpy as np
 
     artifacts = _load_artifacts(variant)
     model = artifacts["model"]
     scaler = artifacts["scaler"]
-    scaled_features = [c for c in artifacts["scaled_features"] if c in feature_names]
+    scaled_features_all: list[str] = artifacts["scaled_features"]
+    scaled_features = [c for c in scaled_features_all if c in feature_names]
     feature_index = {name: idx for idx, name in enumerate(feature_names)}
+
+    x = x.copy()
+
+    # Plan A calibrado: raw_penalty = mean + z * scale → tras scaler.transform() da z exacto.
+    if not pt_available:
+        for pt_feat in _PT_FEATURE_NAMES:
+            if pt_feat in feature_index and pt_feat in scaled_features_all:
+                sc_idx = scaled_features_all.index(pt_feat)
+                x[0, feature_index[pt_feat]] = (
+                    scaler.mean_[sc_idx] + _PT_PENALTY_Z * scaler.scale_[sc_idx]
+                )
 
     if scaled_features:
         idxs = [feature_index[c] for c in scaled_features]
-        x_scaled_subset = scaler.transform(x[:, idxs])
-        x = x.copy()
-        x[:, idxs] = x_scaled_subset
+        x[:, idxs] = scaler.transform(x[:, idxs])
 
     proba = model.predict_proba(x)[0]
     pred_idx = int(np.argmax(proba))
@@ -482,9 +515,9 @@ def _predict(x, feature_names: list[str], variant: str | None = None) -> dict:
     }
 
 
-def _build_debug_payload(x, feature_names: list[str], otp: dict, route_features: dict[str, float | int]) -> dict:
+def _build_debug_payload(x, feature_names: list[str], otp: dict, route_features: dict[str, float | int], variant: str | None = None) -> dict:
     """Construye la respuesta del endpoint /debug-features con el vector raw y escalado."""
-    artifacts = _load_artifacts()
+    artifacts = _load_artifacts(variant)
     scaler = artifacts["scaler"]
     scaled_features = [c for c in artifacts["scaled_features"] if c in feature_names]
     feature_index = {name: idx for idx, name in enumerate(feature_names)}
@@ -554,16 +587,19 @@ async def run_lpmc_inference(body: dict) -> dict:
         "foot": foot,
     }
 
-    route_features, pt_available = _build_route_features(osrm_results, otp)
+    crow_fly_m = _haversine_m(origin["lat"], origin["lon"], destination["lat"], destination["lon"])
+    route_features, pt_available = _build_route_features(osrm_results, otp, crow_fly_m)
 
+    variant = body.get("model_variant") or None
     payload = dict(body["user_profile"])
-    x, feature_names = _build_feature_frame(payload, route_features)
-    # Plan A activo: features PT ya vienen penalizadas de _build_route_features().
+    x, feature_names = _build_feature_frame(payload, route_features, variant)
+    # Plan A calibrado: _predict() inyecta raw_penalty = mean + 5·scale para features PT
+    # cuando pt_available=False, garantizando z=5 tras scaler.transform() en los 3 modelos.
     # Plan B (salvavidas, desactivado): descomentar para forzar pt=0 post-inferencia.
-    # prediction = _apply_pt_suppression(_predict(x, feature_names), pt_available)
-    prediction = _predict(x, feature_names)
+    # prediction = _apply_pt_suppression(_predict(x, feature_names, pt_available, variant), pt_available)
+    prediction = _predict(x, feature_names, pt_available=pt_available, variant=variant)
 
-    artifacts = _load_artifacts()
+    artifacts = _load_artifacts(variant)
 
     return {
         **prediction,
@@ -579,6 +615,7 @@ async def run_lpmc_inference(body: dict) -> dict:
             "itinerary_index": otp["itinerary_index"],
             "total_itineraries": otp["total_itineraries"],
             "pt_available": pt_available,
+            "short_trip": crow_fly_m < _SHORT_TRIP_THRESHOLD_M,
         },
     }
 
@@ -607,7 +644,8 @@ async def run_lpmc_compare(body: dict) -> dict:
     )
 
     osrm_results = {"driving": driving, "cycling": cycling, "foot": foot}
-    route_features, pt_available = _build_route_features(osrm_results, otp)
+    crow_fly_m = _haversine_m(origin["lat"], origin["lon"], destination["lat"], destination["lon"])
+    route_features, pt_available = _build_route_features(osrm_results, otp, crow_fly_m)
     payload = dict(body["user_profile"])
 
     results: dict[str, Any] = {}
@@ -615,8 +653,8 @@ async def run_lpmc_compare(body: dict) -> dict:
         try:
             x, feature_names = _build_feature_frame(payload, route_features, variant)
             # Plan B desactivado — ver run_lpmc_inference() para la nota.
-            # results[variant] = _apply_pt_suppression(_predict(x, feature_names, variant), pt_available)
-            results[variant] = _predict(x, feature_names, variant)
+            # results[variant] = _apply_pt_suppression(_predict(x, feature_names, pt_available=pt_available, variant=variant), pt_available)
+            results[variant] = _predict(x, feature_names, pt_available=pt_available, variant=variant)
         except FileNotFoundError:
             results[variant] = None
 
@@ -627,6 +665,7 @@ async def run_lpmc_compare(body: dict) -> dict:
             "itinerary_index": otp["itinerary_index"],
             "total_itineraries": otp["total_itineraries"],
             "pt_available": pt_available,
+            "short_trip": crow_fly_m < _SHORT_TRIP_THRESHOLD_M,
         },
     }
 
@@ -663,9 +702,11 @@ async def run_lpmc_debug_features(body: dict) -> dict:
         "cycling": cycling,
         "foot": foot,
     }
-    route_features, pt_available = _build_route_features(osrm_results, otp)
+    crow_fly_m = _haversine_m(origin["lat"], origin["lon"], destination["lat"], destination["lon"])
+    route_features, pt_available = _build_route_features(osrm_results, otp, crow_fly_m)
+    variant = body.get("model_variant") or None
     payload = dict(body["user_profile"])
-    x, feature_names = _build_feature_frame(payload, route_features)
-    debug = _build_debug_payload(x, feature_names, otp, route_features)
+    x, feature_names = _build_feature_frame(payload, route_features, variant)
+    debug = _build_debug_payload(x, feature_names, otp, route_features, variant)
     debug["model_info"]["pt_available"] = pt_available
     return debug
