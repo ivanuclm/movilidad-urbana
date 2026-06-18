@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Car, Bike, Footprints, Bus, Play, Square, ChevronLeft, ChevronRight, ChevronDown, MapPin, Route, Activity, Layers, Settings, X, Search, Briefcase, GraduationCap, House, Info } from "lucide-react";
 import { MapView } from "./components/MapView";
 import "./App.css";
 
@@ -272,6 +273,14 @@ const PROFILE_LABELS: Record<Profile, string> = {
   foot: "A pie",
 };
 
+function ModeIcon({ mode, size = 15 }: { mode: Profile | "transit"; size?: number }) {
+  const props = { size, strokeWidth: 1.75 };
+  if (mode === "driving")  return <Car {...props} />;
+  if (mode === "cycling")  return <Bike {...props} />;
+  if (mode === "foot")     return <Footprints {...props} />;
+  return <Bus {...props} />;
+}
+
 const PURPOSE_OPTIONS: { value: LpmcPurpose; label: string }[] = [
   { value: "B", label: "[B] Otros viajes base" },
   { value: "HBE", label: "[HBE] Hogar - Educación" },
@@ -418,6 +427,38 @@ const LPMC_MODE_LABELS: Record<LpmcPredictResponse["predicted_mode"], string> = 
   drive: "Coche",
 };
 
+const ROUTE_FEATURE_LABELS: Record<string, string> = {
+  dur_walking_h: "A pie (h)",
+  dur_cycling_h: "Bicicleta (h)",
+  dur_pt_access_h: "Acceso parada PT (h)",
+  dur_pt_rail_h: "En PT (h)",
+  dur_pt_int_h: "Transbordo PT (h)",
+  dur_driving_h: "Conducción (h)",
+  cost_transit: "Coste bus (€)",
+  cost_driving_total: "Coste coche (€)",
+  distance_km: "Distancia (km)",
+  pt_interchanges: "Transbordos PT",
+  _PT_PENALTY_DURATION_H: "Penalización PT — dur. (h)",
+  _PT_PENALTY_INTERCHANGES: "Penalización PT — transbordos",
+};
+
+function presetTooltipLines(v: LpmcUserProfile): string[] {
+  const day = DAY_OPTIONS.find((d) => d.value === v.day_of_week)?.label ?? String(v.day_of_week);
+  const h = Math.floor(v.start_time_linear);
+  const m = Math.round((v.start_time_linear - h) * 60);
+  const time = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const fuel = FUEL_OPTIONS.find((f) => f.value === v.fueltype)?.label ?? v.fueltype;
+  const purpose = PURPOSE_OPTIONS.find((p) => p.value === v.purpose)?.label ?? v.purpose;
+  return [
+    purpose,
+    `${day} · ${time}`,
+    `${v.female ? "Mujer" : "Hombre"}, ${v.age} años`,
+    `Carnet: ${v.driving_license ? "sí" : "no"} · ${v.car_ownership} coche${v.car_ownership !== 1 ? "s" : ""}`,
+    `Combustible: ${fuel}`,
+    `Bus: ${v.cost_transit.toFixed(2)} € · Coche: ${v.cost_driving_total.toFixed(2)} €`,
+  ];
+}
+
 // Colores coherentes entre botones y líneas
 const MODE_COLORS: Record<UiMode, string> = {
   driving: "#2563eb", // azul
@@ -470,6 +511,13 @@ function groupByHour(departures: string[]): [string, string[]][] {
   return [...map.entries()];
 }
 
+function PresetIcon({ id, size = 15 }: { id: string; size?: number }) {
+  const props = { size, strokeWidth: 1.75 };
+  if (id === "commuter") return <Briefcase {...props} />;
+  if (id === "student") return <GraduationCap {...props} />;
+  return <House {...props} />;
+}
+
 function App() {
   const [origin, setOrigin] = useState<Point>({ lat: 39.87029, lon: -4.03434 });
   const [destination, setDestination] = useState<Point>({
@@ -493,8 +541,11 @@ function App() {
   // Mismo parche que OTP (date=2025-12-01): usar fecha fija dentro del rango del feed.
   const [scheduleDate, setScheduleDate] = useState<string>('2026-05-22');
   const [activePanel, setActivePanel] = useState<'about' | 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings' | null>('about');
-  const [showLpmcDebug, setShowLpmcDebug] = useState(false);
+  const [showDebugModal, setShowDebugModal] = useState(false);
   const [activeModel, setActiveModel] = useState<LpmcVariant>('xgb');
+  const [changedFields, setChangedFields] = useState<Set<keyof LpmcUserProfile>>(new Set());
+  const [presetInfoAnchor, setPresetInfoAnchor] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const changedFieldsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lpmcProfile, setLpmcProfile] = useState<LpmcUserProfile>({
     purpose: "HBW",
     fueltype: "Average",
@@ -510,6 +561,17 @@ function App() {
 
   function togglePanel(panel: 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings') {
     setActivePanel((prev) => (prev === panel ? null : panel));
+  }
+
+  function applyPreset(values: LpmcUserProfile) {
+    const changed = new Set<keyof LpmcUserProfile>();
+    (Object.keys(values) as (keyof LpmcUserProfile)[]).forEach((k) => {
+      if (lpmcProfile[k] !== values[k]) changed.add(k);
+    });
+    setLpmcProfile(values);
+    setChangedFields(changed);
+    if (changedFieldsTimer.current) clearTimeout(changedFieldsTimer.current);
+    changedFieldsTimer.current = setTimeout(() => setChangedFields(new Set()), 850);
   }
 
   function handleModeClick(mode: UiMode, e: React.MouseEvent) {
@@ -615,6 +677,12 @@ function App() {
     },
   });
 
+  const transitLineRoute = mainTransitSegment?.route_id
+    ? gtfsRoutesQuery.data?.find(r => r.id === mainTransitSegment!.route_id)
+    : undefined;
+  const lineChipColor = transitLineRoute
+    ? routeColor(transitLineRoute)
+    : hslForKey(transitLineLabel ?? 'bus');
 
   // ------------- GTFS: detalles de la ruta seleccionada -------------
   // El GTFS de Toledo no tiene direction_id: cada sentido es un route_id distinto
@@ -744,9 +812,7 @@ function App() {
         {/* ── Icon Rail ── */}
         <nav className="sidebar-rail">
           <button className="rail-logo" onClick={() => togglePanel('about')} title="Inicio">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="white">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-            </svg>
+            <MapPin size={20} color="white" strokeWidth={1.75} />
           </button>
 
           <button
@@ -754,11 +820,7 @@ function App() {
             onClick={() => togglePanel('routes')}
             title="Planificar ruta"
           >
-            <span className="rail-btn__icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M21.71 11.29l-9-9a1 1 0 0 0-1.42 0l-9 9a1 1 0 0 0 0 1.42l9 9a1 1 0 0 0 1.42 0l9-9a1 1 0 0 0 0-1.42zM14 14.5V12h-4v3H8v-4a1 1 0 0 1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/>
-              </svg>
-            </span>
+            <span className="rail-btn__icon"><Route size={20} strokeWidth={1.75} /></span>
             <span className="rail-btn__label">Rutas</span>
           </button>
 
@@ -767,11 +829,7 @@ function App() {
             onClick={() => togglePanel('gtfs')}
             title="Red de transporte"
           >
-            <span className="rail-btn__icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M4 16c0 .88.39 1.67 1 2.22V20a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h8v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm9 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM18 11H6V6h12v5z"/>
-              </svg>
-            </span>
+            <span className="rail-btn__icon"><Bus size={20} strokeWidth={1.75} /></span>
             <span className="rail-btn__label">Red</span>
           </button>
 
@@ -780,11 +838,7 @@ function App() {
             onClick={() => togglePanel('predict')}
             title="Predicción modal"
           >
-            <span className="rail-btn__icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-              </svg>
-            </span>
+            <span className="rail-btn__icon"><Activity size={20} strokeWidth={1.75} /></span>
             <span className="rail-btn__label">IA</span>
           </button>
 
@@ -795,11 +849,7 @@ function App() {
             onClick={() => togglePanel('layers')}
             title="Mapa base"
           >
-            <span className="rail-btn__icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/>
-              </svg>
-            </span>
+            <span className="rail-btn__icon"><Layers size={20} strokeWidth={1.75} /></span>
             <span className="rail-btn__label">Capas</span>
           </button>
 
@@ -808,11 +858,7 @@ function App() {
             onClick={() => togglePanel('settings')}
             title="Ajustes"
           >
-            <span className="rail-btn__icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.22-.07.47.12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-              </svg>
-            </span>
+            <span className="rail-btn__icon"><Settings size={20} strokeWidth={1.75} /></span>
             <span className="rail-btn__label">Ajustes</span>
           </button>
         </nav>
@@ -830,9 +876,7 @@ function App() {
                 {activePanel === 'settings' && 'Ajustes'}
               </h2>
               <button className="panel-close" onClick={() => setActivePanel(null)} title="Cerrar">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
+                <X size={18} strokeWidth={2} />
               </button>
             </div>
 
@@ -843,9 +887,7 @@ function App() {
                 <div className="about-panel">
                   <div className="about-panel-hero">
                     <div className="about-panel-logo">
-                      <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
-                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                      </svg>
+                      <MapPin size={28} color="white" strokeWidth={1.75} />
                     </div>
                     <div>
                       <div className="about-panel-name">Simulador de Movilidad Urbana</div>
@@ -891,11 +933,15 @@ function App() {
                 <>
                   <div className="od-box">
                     <div className="od-row">
-                      <span className="od-dot od-dot--origin" />
+                      <span className="od-icon od-icon--origin">
+                        <Play size={18} fill="currentColor" strokeWidth={0} />
+                      </span>
                       <span className="od-coords">{origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}</span>
                     </div>
                     <div className="od-row">
-                      <span className="od-dot od-dot--dest" />
+                      <span className="od-icon od-icon--dest">
+                        <Square size={17} fill="currentColor" strokeWidth={0} />
+                      </span>
                       <span className="od-coords">{destination.lat.toFixed(4)}, {destination.lon.toFixed(4)}</span>
                     </div>
                   </div>
@@ -911,7 +957,7 @@ function App() {
                         onClick={(e) => handleModeClick(p, e)}
                         disabled={isCalculating}
                       >
-                        {PROFILE_LABELS[p]}
+                        <ModeIcon mode={p} size={14} /> {PROFILE_LABELS[p]}
                       </button>
                     ))}
                     <button
@@ -921,7 +967,7 @@ function App() {
                       onClick={(e) => handleModeClick("transit", e)}
                       disabled={isCalculating || !transitMutation.data}
                     >
-                      Bus
+                      <ModeIcon mode="transit" size={14} /> Bus
                     </button>
                   </div>
 
@@ -948,16 +994,21 @@ function App() {
                       <tbody>
                         {osrmMutation.data?.results.map((r) => (
                           <tr key={r.profile} className={selectedModes.has(r.profile) ? 'row-active' : undefined}>
-                            <td>{PROFILE_LABELS[r.profile]}</td>
+                            <td className="td-mode"><ModeIcon mode={r.profile} size={14} /> {PROFILE_LABELS[r.profile]}</td>
                             <td>{(r.distance_m / 1000).toFixed(2)} km</td>
                             <td>{(r.duration_s / 60).toFixed(0)} min</td>
                           </tr>
                         ))}
                         {transitMutation.data && (
-                          <tr className={selectedModes.has("transit") ? 'row-active' : undefined}>
-                            <td>
-                              Bus
-                              {transitLineLabel && <div style={{ fontSize: '.72rem', color: '#5f6368' }}>Línea {transitLineLabel}</div>}
+                          <tr className={`row-transit${selectedModes.has("transit") ? ' row-active' : ''}`}>
+                            <td className="td-mode">
+                              <ModeIcon mode="transit" size={14} />
+                              <span>Bus</span>
+                              {transitLineLabel && (
+                                <span className="line-chip-inline" style={{ background: lineChipColor }}>
+                                  {transitLineLabel}
+                                </span>
+                              )}
                             </td>
                             <td>{(transitMutation.data.distance_m / 1000).toFixed(2)} km</td>
                             <td>{(transitMutation.data.duration_s / 60).toFixed(0)} min</td>
@@ -968,7 +1019,7 @@ function App() {
                   )}
 
                   {transitResult && (
-                    <div className="itinerary-nav">
+                    <div className="transit-card-nav">
                       <button
                         type="button"
                         onClick={() => {
@@ -978,8 +1029,11 @@ function App() {
                           transitMutation.mutate(next);
                         }}
                         disabled={transitItineraryIndex <= 0 || transitMutation.isPending}
-                      >← Anterior</button>
-                      <span>Itinerario {transitItineraryIndex + 1} / {totalItineraries || '?'}</span>
+                      ><ChevronLeft size={15} strokeWidth={2.2} /> Anterior</button>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Bus size={13} strokeWidth={1.75} />
+                        Itinerario {transitItineraryIndex + 1} / {totalItineraries || '?'}
+                      </span>
                       <button
                         type="button"
                         onClick={() => {
@@ -989,7 +1043,7 @@ function App() {
                           transitMutation.mutate(next);
                         }}
                         disabled={!totalItineraries || transitItineraryIndex >= totalItineraries - 1 || transitMutation.isPending}
-                      >Siguiente →</button>
+                      >Siguiente <ChevronRight size={15} strokeWidth={2.2} /></button>
                     </div>
                   )}
 
@@ -1044,9 +1098,7 @@ function App() {
                       onChange={e => setRouteFilter(e.target.value)}
                       style={{ width: '100%', height: '34px', padding: '0 10px 0 32px', border: '1px solid #dadce0', borderRadius: '6px', fontSize: '.82rem', fontFamily: 'inherit' }}
                     />
-                    <svg style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#9aa0a6" strokeWidth="2.2">
-                      <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
-                    </svg>
+                    <Search size={15} strokeWidth={2.2} color="#9aa0a6" style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                   </div>
 
                   {gtfsRoutesQuery.isLoading && <p style={{ fontSize: '.78rem', color: '#9aa0a6' }}>Cargando líneas…</p>}
@@ -1080,9 +1132,7 @@ function App() {
                             <span className="gtfs-line-badge" style={{ background: color, color: routeTextColor(r) }}>{r.short_name || r.id}</span>
                             <span className="gtfs-line-name">{r.long_name || ''}</span>
                             {hasVariants && (
-                              <svg className={`gtfs-chevron${isOpen ? ' gtfs-chevron--open' : ''}`} viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M6 9l6 6 6-6"/>
-                              </svg>
+                              <ChevronDown size={14} strokeWidth={2.5} className={`gtfs-chevron${isOpen ? ' gtfs-chevron--open' : ''}`} />
                             )}
                           </button>
 
@@ -1183,88 +1233,101 @@ function App() {
               {/* ════ PREDICT ════ */}
               {activePanel === 'predict' && (
                 <>
-                  <div className="model-toolbar">
-                    <span className="status-pill">{modelVariantLabel(activeModel)} activo</span>
-                    <span className="status-note">Inferencia de elección modal.</span>
-                  </div>
-
+                  {/* Perfiles rápidos */}
                   <div className="preset-grid">
                     {PROFILE_PRESETS.map((preset) => (
                       <button
                         key={preset.id}
                         type="button"
                         className={`preset-card${selectedPresetId === preset.id ? ' preset-card--active' : ''}`}
-                        onClick={() => setLpmcProfile(preset.values)}
+                        onClick={() => applyPreset(preset.values)}
                       >
-                        <strong>{preset.label}</strong>
-                        <span>{preset.description}</span>
+                        <div className="preset-card-head">
+                          <span className="preset-icon"><PresetIcon id={preset.id} size={14} /></span>
+                          <strong className="preset-card-title">{preset.label}</strong>
+                          <span
+                            className="preset-info-btn"
+                            onMouseEnter={(e) => setPresetInfoAnchor({ id: preset.id, rect: e.currentTarget.getBoundingClientRect() })}
+                            onMouseLeave={() => setPresetInfoAnchor(null)}
+                          >
+                            <Info size={9} strokeWidth={2.5} />
+                          </span>
+                        </div>
+                        <span className="preset-desc">{preset.description}</span>
                       </button>
                     ))}
                   </div>
 
+                  {/* Formulario de parámetros */}
                   <div className="form-grid">
-                    <label className="field-block">
+                    <span className="form-section-label">Viaje</span>
+                    <label className={`field-block field-block--full${changedFields.has('purpose') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Motivo</span>
                       <select value={lpmcProfile.purpose} onChange={(e) => setLpmcProfile((p) => ({ ...p, purpose: e.target.value as LpmcPurpose }))}>
                         {PURPOSE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </label>
-                    <label className="field-block">
-                      <span className="field-label">Combustible</span>
-                      <select value={lpmcProfile.fueltype} onChange={(e) => setLpmcProfile((p) => ({ ...p, fueltype: e.target.value as LpmcFuel }))}>
-                        {FUEL_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('day_of_week') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Día</span>
                       <select value={lpmcProfile.day_of_week} onChange={(e) => setLpmcProfile((p) => ({ ...p, day_of_week: Number(e.target.value) }))}>
                         {DAY_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('start_time_linear') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Hora de salida</span>
                       <input type="time" step={300} value={linearHourToTimeString(lpmcProfile.start_time_linear)} onChange={(e) => setLpmcProfile((p) => ({ ...p, start_time_linear: timeStringToLinearHour(e.target.value) }))} />
                     </label>
-                    <label className="field-block">
+
+                    <span className="form-section-label">Persona</span>
+                    <label className={`field-block${changedFields.has('age') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Edad</span>
                       <input type="number" min={16} max={100} value={lpmcProfile.age} onChange={(e) => setLpmcProfile((p) => ({ ...p, age: Number(e.target.value) }))} />
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('female') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Género</span>
                       <select value={lpmcProfile.female} onChange={(e) => setLpmcProfile((p) => ({ ...p, female: Number(e.target.value) }))}>
                         <option value={0}>Masculino</option>
                         <option value={1}>Femenino</option>
                       </select>
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('driving_license') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Carnet</span>
                       <select value={lpmcProfile.driving_license} onChange={(e) => setLpmcProfile((p) => ({ ...p, driving_license: Number(e.target.value) }))}>
                         <option value={1}>Sí</option>
                         <option value={0}>No</option>
                       </select>
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('car_ownership') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Coches hogar</span>
                       <input type="number" min={0} max={3} value={lpmcProfile.car_ownership} onChange={(e) => setLpmcProfile((p) => ({ ...p, car_ownership: Number(e.target.value) }))} />
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block field-block--full${changedFields.has('fueltype') ? ' field-block--changed' : ''}`}>
+                      <span className="field-label">Combustible</span>
+                      <select value={lpmcProfile.fueltype} onChange={(e) => setLpmcProfile((p) => ({ ...p, fueltype: e.target.value as LpmcFuel }))}>
+                        {FUEL_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    </label>
+
+                    <span className="form-section-label">Costes</span>
+                    <label className={`field-block${changedFields.has('cost_transit') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Coste bus (€)</span>
                       <input type="number" min={0} step={0.1} value={lpmcProfile.cost_transit} onChange={(e) => setLpmcProfile((p) => ({ ...p, cost_transit: Number(e.target.value) }))} />
                     </label>
-                    <label className="field-block">
+                    <label className={`field-block${changedFields.has('cost_driving_total') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Coste coche (€)</span>
                       <input type="number" min={0} step={0.1} value={lpmcProfile.cost_driving_total} onChange={(e) => setLpmcProfile((p) => ({ ...p, cost_driving_total: Number(e.target.value) }))} />
                     </label>
                   </div>
 
-                  <div className="action-row">
-                    <button className="primary-button" style={{ flex: 1 }} onClick={() => lpmcPredictMutation.mutate(transitItineraryIndex)} disabled={lpmcPredictMutation.isPending}>
-                      {lpmcPredictMutation.isPending ? 'Infiriendo...' : 'Inferir modo'}
-                    </button>
-                    <button style={{ flex: 1 }} onClick={() => lpmcCompareMutation.mutate(transitItineraryIndex)} disabled={lpmcCompareMutation.isPending}>
-                      {lpmcCompareMutation.isPending ? 'Comparando...' : 'Comparar modelos'}
-                    </button>
-                  </div>
+                  {/* Botón principal */}
+                  <button
+                    className="infer-button"
+                    onClick={() => lpmcPredictMutation.mutate(transitItineraryIndex)}
+                    disabled={lpmcPredictMutation.isPending}
+                  >
+                    <span>{lpmcPredictMutation.isPending ? 'Infiriendo…' : 'Inferir modo'}</span>
+                    <span className="infer-model-badge">{modelVariantLabel(activeModel)}</span>
+                  </button>
 
                   {lpmcPredictMutation.error && <p className="error-text">{lpmcPredictMutation.error.message}</p>}
 
@@ -1279,32 +1342,57 @@ function App() {
                     </div>
                   )}
 
+                  {/* Resultados */}
                   {lpmcPredictMutation.data && (
-                    <div className="prediction-card">
-                      <div style={{ fontWeight: 700, marginBottom: '10px', color: '#1a73e8', fontSize: '.95rem' }}>
-                        {LPMC_MODE_LABELS[lpmcPredictMutation.data.predicted_mode]}
-                        <span style={{ fontSize: '.8rem', color: '#5f6368', fontWeight: 400, marginLeft: '6px' }}>
-                          ({(lpmcPredictMutation.data.confidence * 100).toFixed(1)}% confianza)
-                        </span>
-                      </div>
-                      <div className="prob-bars">
-                        {(['walk', 'cycle', 'pt', 'drive'] as const).map((mode) => {
-                          const pct = lpmcPredictMutation.data!.probabilities[mode] * 100;
-                          const isWinner = lpmcPredictMutation.data!.predicted_mode === mode;
-                          return (
-                            <div key={mode} className="prob-row">
-                              <span className="prob-label">{LPMC_MODE_LABELS[mode]}</span>
-                              <div className="prob-track">
-                                <div className="prob-fill" style={{ width: `${pct.toFixed(1)}%`, background: isWinner ? '#1a73e8' : '#dadce0' }} />
+                    <>
+                      <div className="prediction-card">
+                        <div style={{ fontWeight: 700, marginBottom: '10px', color: '#1a73e8', fontSize: '.95rem' }}>
+                          {LPMC_MODE_LABELS[lpmcPredictMutation.data.predicted_mode]}
+                          <span style={{ fontSize: '.8rem', color: '#5f6368', fontWeight: 400, marginLeft: '6px' }}>
+                            ({(lpmcPredictMutation.data.confidence * 100).toFixed(1)}% confianza)
+                          </span>
+                        </div>
+                        <div className="prob-bars">
+                          {(['walk', 'cycle', 'pt', 'drive'] as const).map((mode) => {
+                            const pct = lpmcPredictMutation.data!.probabilities[mode] * 100;
+                            const isWinner = lpmcPredictMutation.data!.predicted_mode === mode;
+                            return (
+                              <div key={mode} className="prob-row">
+                                <span className="prob-label">{LPMC_MODE_LABELS[mode]}</span>
+                                <div className="prob-track">
+                                  <div className="prob-fill" style={{ width: `${pct.toFixed(1)}%`, background: isWinner ? '#1a73e8' : '#dadce0' }} />
+                                </div>
+                                <span className="prob-pct" style={{ color: isWinner ? '#1a73e8' : '#5f6368', fontWeight: isWinner ? 700 : 400 }}>
+                                  {pct.toFixed(1)}%
+                                </span>
                               </div>
-                              <span className="prob-pct" style={{ color: isWinner ? '#1a73e8' : '#5f6368', fontWeight: isWinner ? 700 : 400 }}>
-                                {pct.toFixed(1)}%
-                              </span>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+
+                      {/* Acciones secundarias post-inferencia */}
+                      <div className="results-actions">
+                        <button
+                          type="button"
+                          className="results-action-btn"
+                          onClick={() => lpmcCompareMutation.mutate(transitItineraryIndex)}
+                          disabled={lpmcCompareMutation.isPending}
+                        >
+                          {lpmcCompareMutation.isPending ? 'Comparando…' : 'Comparar modelos'}
+                        </button>
+                        <button
+                          type="button"
+                          className="results-action-btn"
+                          onClick={() => {
+                            setShowDebugModal(true);
+                            if (!lpmcDebugMutation.data) lpmcDebugMutation.mutate(transitItineraryIndex);
+                          }}
+                        >
+                          Ver variables
+                        </button>
+                      </div>
+                    </>
                   )}
 
                   {lpmcCompareMutation.error && <p className="error-text">{lpmcCompareMutation.error.message}</p>}
@@ -1320,6 +1408,7 @@ function App() {
                     </div>
                   )}
 
+                  {/* Tabla comparativa */}
                   {lpmcCompareMutation.data && (() => {
                     const { results } = lpmcCompareMutation.data;
                     const modes: Array<'walk' | 'cycle' | 'pt' | 'drive'> = ['walk', 'cycle', 'pt', 'drive'];
@@ -1361,21 +1450,6 @@ function App() {
                       </div>
                     );
                   })()}
-
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                    <button type="button" onClick={() => { setShowLpmcDebug(v => !v); if (!showLpmcDebug) lpmcDebugMutation.mutate(transitItineraryIndex); }}>
-                      {showLpmcDebug ? 'Ocultar variables' : 'Ver variables'}
-                    </button>
-                  </div>
-
-                  {showLpmcDebug && lpmcDebugMutation.data && (
-                    <details open style={{ marginTop: '8px' }}>
-                      <summary style={{ cursor: 'pointer', fontSize: '.78rem', color: '#5f6368' }}>Vector de entrada al modelo</summary>
-                      <pre style={{ marginTop: '6px', fontSize: '.68rem', maxHeight: '200px', overflow: 'auto', background: '#1e293b', color: '#e2e8f0', padding: '10px', borderRadius: '8px' }}>
-                        {JSON.stringify(lpmcDebugMutation.data, null, 2)}
-                      </pre>
-                    </details>
-                  )}
                 </>
               )}
 
@@ -1436,9 +1510,6 @@ function App() {
                           <span className="model-option__desc">
                             {KNOWN_MODEL_DESCRIPTIONS[variant] ?? "Modelo personalizado"}
                           </span>
-                          {isActive && (
-                            <span className="model-badge model-badge--active">Activo</span>
-                          )}
                         </button>
                       );
                     })}
@@ -1469,6 +1540,137 @@ function App() {
           </div>
         )}
       </aside>
+
+      {/* ════ MODAL VARIABLES ════ */}
+      {showDebugModal && (
+        <div className="debug-modal-overlay" onClick={() => setShowDebugModal(false)}>
+          <div className="debug-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="debug-modal-header">
+              <span style={{ fontWeight: 700, fontSize: '1rem', color: '#202124' }}>Variables del modelo</span>
+              <button className="debug-modal-close" onClick={() => setShowDebugModal(false)}>✕</button>
+            </div>
+
+            {(lpmcDebugMutation.data?.route_features || lpmcPredictMutation.data?.route_features) && (() => {
+              const rf = lpmcDebugMutation.data?.route_features ?? lpmcPredictMutation.data!.route_features;
+              return (
+                <div className="debug-section">
+                  <div className="debug-section-title">Características de ruta</div>
+                  <table className="debug-kv-table">
+                    <tbody>
+                      {Object.entries(rf).map(([k, v]) => (
+                        <tr key={k}>
+                          <td>{ROUTE_FEATURE_LABELS[k] ?? k}</td>
+                          <td>{typeof v === 'number' ? v.toFixed(4) : String(v)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+
+            <div className="debug-section">
+              <div className="debug-section-title">Perfil del viajero</div>
+              <table className="debug-kv-table">
+                <tbody>
+                  <tr><td>Motivo</td><td>{PURPOSE_OPTIONS.find(p => p.value === lpmcProfile.purpose)?.label ?? lpmcProfile.purpose}</td></tr>
+                  <tr><td>Combustible</td><td>{FUEL_OPTIONS.find(f => f.value === lpmcProfile.fueltype)?.label ?? lpmcProfile.fueltype}</td></tr>
+                  <tr><td>Día</td><td>{DAY_OPTIONS.find(d => d.value === lpmcProfile.day_of_week)?.label ?? lpmcProfile.day_of_week}</td></tr>
+                  <tr><td>Hora de salida</td><td>{linearHourToTimeString(lpmcProfile.start_time_linear)}</td></tr>
+                  <tr><td>Edad</td><td>{lpmcProfile.age}</td></tr>
+                  <tr><td>Género</td><td>{lpmcProfile.female ? 'Femenino' : 'Masculino'}</td></tr>
+                  <tr><td>Carnet de conducir</td><td>{lpmcProfile.driving_license ? 'Sí' : 'No'}</td></tr>
+                  <tr><td>Coches en hogar</td><td>{lpmcProfile.car_ownership}</td></tr>
+                  <tr><td>Coste bus (€)</td><td>{lpmcProfile.cost_transit.toFixed(2)}</td></tr>
+                  <tr><td>Coste coche (€)</td><td>{lpmcProfile.cost_driving_total.toFixed(2)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            {lpmcDebugMutation.isPending && (
+              <p style={{ fontSize: '.8rem', color: '#9aa0a6', padding: '8px 0' }}>Cargando vector de entrada…</p>
+            )}
+            {lpmcDebugMutation.data && (
+              <>
+                <div className="debug-section">
+                  <div className="debug-section-title">Features brutas (sin escalar)</div>
+                  <table className="debug-kv-table">
+                    <tbody>
+                      {lpmcDebugMutation.data.feature_names.map((name) => (
+                        <tr key={name}>
+                          <td>{name}</td>
+                          <td>{lpmcDebugMutation.data!.raw_features[name]?.toFixed(4) ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="debug-section">
+                  <div className="debug-section-title">Features escaladas</div>
+                  <table className="debug-kv-table">
+                    <tbody>
+                      {lpmcDebugMutation.data.scaled_columns.map((name) => (
+                        <tr key={name}>
+                          <td>{name}</td>
+                          <td>{lpmcDebugMutation.data!.scaled_features[name]?.toFixed(4) ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="debug-section">
+                  <div className="debug-section-title">Info del modelo</div>
+                  <table className="debug-kv-table">
+                    <tbody>
+                      {Object.entries(lpmcDebugMutation.data.model_info).map(([k, v]) => (
+                        <tr key={k}>
+                          <td>{k}</td>
+                          <td>{String(v)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {/* Request completo */}
+            <div className="debug-section">
+              <div className="debug-section-title">Request enviado a la API</div>
+              <pre className="debug-request-pre">{JSON.stringify({
+                origin,
+                destination,
+                user_profile: lpmcProfile,
+                itinerary_index: transitItineraryIndex ?? undefined,
+                model_variant: activeModel,
+              }, null, 2)}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup info de perfil (fixed, escapa el overflow del panel) */}
+      {presetInfoAnchor && (() => {
+        const preset = PROFILE_PRESETS.find((p) => p.id === presetInfoAnchor.id);
+        if (!preset) return null;
+        const { rect } = presetInfoAnchor;
+        return (
+          <div
+            className="preset-info-popup"
+            style={{
+              position: 'fixed',
+              top: rect.bottom + 4,
+              left: Math.max(12, rect.right - 210),
+              zIndex: 5000,
+              pointerEvents: 'none',
+            }}
+          >
+            {presetTooltipLines(preset.values).map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        );
+      })()}
 
     </div>
   );

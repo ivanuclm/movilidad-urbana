@@ -200,14 +200,15 @@ html, body, #root {
 
 .od-row + .od-row { border-top: 1px solid #e8eaed; }
 
-.od-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.od-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 20px;
 }
-.od-dot--origin { background: #34a853; }
-.od-dot--dest   { background: #ea4335; border-radius: 2px; }
+.od-icon--origin { color: #34a853; }
+.od-icon--dest   { color: #ea4335; }
 
 .od-coords {
   font-size: .78rem;
@@ -243,6 +244,9 @@ html, body, #root {
   transition: background 120ms, border-color 120ms, color 120ms, box-shadow 120ms;
   font-family: inherit;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .mode-button:hover:not(:disabled) { background: #f1f3f4; }
 .mode-button:disabled { opacity: .5; cursor: default; }
@@ -283,8 +287,8 @@ button.secondary-button {
 }
 button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 
-/* Generic buttons inside panels (not mode-button, not primary-button) */
-.panel-body button:not(.mode-button):not(.primary-button):not(.rail-btn):not(.panel-close):not(.preset-card):not(.basemap-card) {
+/* Generic buttons inside panels (not mode-button, not primary-button, not custom) */
+.panel-body button:not(.mode-button):not(.primary-button):not(.rail-btn):not(.panel-close):not(.preset-card):not(.basemap-card):not(.infer-button):not(.results-action-btn):not(.model-option):not(.stop-row__label):not(.gtfs-variant-item) {
   height: 34px;
   padding: 0 14px;
   border: 1px solid #dadce0;
@@ -297,7 +301,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   font-family: inherit;
   transition: background 120ms;
 }
-.panel-body button:not(.mode-button):not(.primary-button):not(.rail-btn):not(.panel-close):not(.preset-card):not(.basemap-card):hover:not(:disabled) {
+.panel-body button:not(.mode-button):not(.primary-button):not(.rail-btn):not(.panel-close):not(.preset-card):not(.basemap-card):not(.infer-button):not(.results-action-btn):not(.model-option):not(.stop-row__label):not(.gtfs-variant-item):hover:not(:disabled) {
   background: #f1f3f4;
 }
 
@@ -333,33 +337,56 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .routes-table tbody tr:last-child td { border-bottom: none; }
 .row-active td { font-weight: 600; color: #1a73e8; }
+.td-mode { display: flex; align-items: center; gap: 6px; }
 
-/* ── Itinerary navigation ───────────────────────────────────── */
-.itinerary-nav {
+/* Fila Bus: separador visual respecto a los modos OSRM */
+.row-transit td { border-top: 2px solid #e8eaed; }
+
+/* ── Navegación de itinerarios Bus ──────────────────────────── */
+.transit-card-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 7px 10px;
+  padding: 6px 6px;
   background: #f8f9fa;
-  border-radius: 8px;
+  border: 1px solid #e8eaed;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
   font-size: .8rem;
   font-weight: 600;
   color: #3c4043;
 }
-
-.itinerary-nav button {
-  border: none;
-  background: transparent;
-  color: #1a73e8;
-  font-size: .8rem;
-  font-weight: 600;
+.transit-card-nav button {
+  border: none !important;
+  background: transparent !important;
+  color: #1a73e8 !important;
+  font-size: .8rem !important;
+  font-weight: 600 !important;
   cursor: pointer;
-  padding: 0;
-  font-family: inherit;
+  padding: 0 !important;
+  height: auto !important;
+  font-family: inherit !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
-.itinerary-nav button:disabled { color: #9aa0a6; cursor: default; }
+.transit-card-nav button:disabled {
+  color: #9aa0a6 !important;
+  cursor: default;
+}
+
+/* ── Chip de línea inline (panel Rutas) ────────────────────── */
+.line-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: .73rem;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: .01em;
+}
 
 /* ── Transit detail list ────────────────────────────────────── */
 .transit-brief {
@@ -478,7 +505,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 .preset-card {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   align-items: flex-start;
   padding: 9px 8px;
   border: 1px solid #dadce0;
@@ -489,15 +516,155 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   font-family: inherit;
   transition: border-color 120ms, background 120ms, box-shadow 120ms;
 }
-.preset-card strong { font-size: .78rem; color: #202124; font-weight: 600; }
-.preset-card span   { font-size: .7rem;  color: #5f6368; line-height: 1.3; }
 .preset-card:hover  { border-color: #aecbfa; background: #f8f9ff; }
 
 .preset-card--active {
   border-color: #1a73e8;
   background: #e8f0fe;
 }
-.preset-card--active strong { color: #1a73e8; }
+
+/* preset card inner layout */
+.preset-card-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+.preset-icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.preset-card-title {
+  flex: 1;
+  font-size: .78rem;
+  color: #202124;
+  font-weight: 600;
+  min-width: 0;
+}
+.preset-card--active .preset-card-title { color: #1a73e8; }
+.preset-desc {
+  font-size: .68rem;
+  color: #5f6368;
+  line-height: 1.3;
+}
+
+/* info bubble (fixed-position popup managed by React) */
+.preset-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e8eaed;
+  color: #5f6368;
+  flex-shrink: 0;
+  cursor: help;
+}
+.preset-info-btn:hover { background: #d2e3fc; color: #1a73e8; }
+.preset-card--active .preset-info-btn { background: #c6dafc; color: #1a73e8; }
+
+/* Fixed-position popup (rendered outside panel body, bypasses overflow) */
+.preset-info-popup {
+  background: #202124;
+  color: #e8eaed;
+  font-size: .7rem;
+  padding: 10px 13px;
+  border-radius: 10px;
+  line-height: 1.9;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  white-space: nowrap;
+  min-width: 190px;
+}
+.preset-info-popup > div:first-child { font-weight: 600; margin-bottom: 2px; }
+
+/* ── Field flash on preset change ──────────────────────────── */
+@keyframes flash-field {
+  0%   { background: #fef08a; border-color: #ca8a04; box-shadow: 0 0 0 2px rgba(202,138,4,.2); }
+  65%  { background: #fef9c3; border-color: #d97706; box-shadow: 0 0 0 2px rgba(217,119,6,.1); }
+  100% { background: #fff;    border-color: #dadce0; box-shadow: none; }
+}
+.field-block--changed input,
+.field-block--changed select {
+  animation: flash-field 850ms ease forwards;
+}
+
+/* ── Form section labels ────────────────────────────────────── */
+.form-section-label {
+  grid-column: 1 / -1;
+  font-size: .67rem;
+  font-weight: 700;
+  color: #9aa0a6;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  padding-top: 8px;
+  border-top: 1px solid #e8eaed;
+}
+.form-section-label:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.field-block--full { grid-column: 1 / -1; }
+
+/* ── Infer button ───────────────────────────────────────────── */
+.infer-button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 12px 16px;
+  background: #1a73e8;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: .95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms, box-shadow 150ms;
+  margin-top: 10px;
+  margin-bottom: 4px;
+  font-family: inherit;
+  letter-spacing: .01em;
+}
+.infer-button:hover:not(:disabled) {
+  background: #1557b0;
+  box-shadow: 0 2px 8px rgba(26,115,232,.3);
+}
+.infer-button:disabled { background: #9aa0a6; cursor: not-allowed; }
+.infer-model-badge {
+  font-size: .7rem;
+  font-weight: 400;
+  color: rgba(255,255,255,.75);
+  letter-spacing: .02em;
+}
+
+/* ── Results actions (post-inference) ──────────────────────── */
+.results-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.results-actions > button {
+  flex: 1;
+  padding: 8px;
+  font-size: .78rem;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #fff;
+  color: #3c4043;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.results-actions > button:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.results-actions > button:disabled { color: #9aa0a6; cursor: not-allowed; }
 
 /* ── Prediction results ─────────────────────────────────────── */
 .prediction-card {
@@ -555,6 +722,102 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   background: #f8f9fa;
   border: 1px solid #e8eaed;
   border-radius: 10px;
+}
+
+/* ── Debug modal ────────────────────────────────────────────── */
+.debug-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.debug-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 20px 24px 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+}
+
+.debug-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e8eaed;
+  z-index: 1;
+}
+
+.debug-modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #5f6368;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: background 120ms;
+}
+.debug-modal-close:hover { background: #f1f3f4; }
+
+.debug-section { margin-bottom: 20px; }
+
+.debug-section-title {
+  font-size: .68rem;
+  font-weight: 700;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.debug-kv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .78rem;
+}
+.debug-kv-table td {
+  padding: 4px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid #f1f3f4;
+}
+.debug-kv-table td:first-child {
+  color: #5f6368;
+  font-weight: 500;
+  width: 50%;
+}
+.debug-kv-table td:last-child {
+  color: #202124;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: .73rem;
+  word-break: break-all;
+}
+
+.debug-request-pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: .72rem;
+  line-height: 1.6;
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
 }
 
 /* ── Basemap selector grid ──────────────────────────────────── */
@@ -1080,26 +1343,27 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 .model-option {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   width: 100%;
-  padding: 10px 48px 10px 12px;
+  padding: 14px 16px;
   background: #fff;
   border: 1.5px solid #e8eaed;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   text-align: left;
-  margin-bottom: 6px;
-  transition: border-color .15s, background .15s;
+  margin-bottom: 10px;
+  transition: border-color .15s, background .15s, color .15s;
   font-family: inherit;
-  position: relative;
+  box-sizing: border-box;
 }
 .model-option:hover:not(:disabled) {
   border-color: #1a73e8;
   background: #f8fbff;
 }
-.model-option--active {
-  border-color: #1a73e8;
-  background: #f0f6ff;
+.model-option--active,
+button.model-option--active {
+  border-color: #1a73e8 !important;
+  background: #1a73e8 !important;
 }
 .model-option--unavailable {
   opacity: 0.5;
@@ -1107,18 +1371,24 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 
 .model-option__name {
-  font-size: .85rem;
+  font-size: .9rem;
   font-weight: 600;
   color: #3c4043;
 }
-.model-option--active .model-option__name {
-  color: #1a73e8;
+.model-option--active .model-option__name,
+button.model-option--active .model-option__name {
+  color: #fff !important;
 }
 
 .model-option__desc {
-  font-size: .73rem;
+  font-size: .8rem;
   color: #5f6368;
-  line-height: 1.35;
+  line-height: 1.4;
+  white-space: normal;
+}
+.model-option--active .model-option__desc,
+button.model-option--active .model-option__desc {
+  color: rgba(255,255,255,.85) !important;
 }
 
 .model-badge {

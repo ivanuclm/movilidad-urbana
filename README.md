@@ -84,7 +84,8 @@ docker compose up --build
 
 ```bash
 docker compose up            # start all services (fast after first run)
-docker compose up --build    # rebuild images and start (use after code changes)
+docker compose up --build    # rebuild images and start (use after code or dependency changes)
+docker compose build frontend && docker compose up  # rebuild only the frontend image (e.g. after adding npm packages)
 docker compose down          # stop and remove containers
 docker compose logs -f backend      # stream backend logs
 docker compose logs -f osrm-setup   # check graph compilation progress

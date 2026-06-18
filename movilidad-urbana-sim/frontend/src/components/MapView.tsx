@@ -9,6 +9,7 @@ import {
   Popup,
 } from "react-leaflet";
 import { useState, useEffect, useRef } from "react";
+import { Crosshair, MapPin } from "lucide-react";
 import L from "leaflet";
 
 const defaultCenter: [number, number] = [39.86251, -4.02726]; // Centro en Toledo
@@ -273,7 +274,7 @@ export function MapView({
 
   return (
     <>
-    <MapContainer center={defaultCenter} zoom={13} zoomSnap={0.25} wheelPxPerZoomLevel={120} className="map-container">
+    <MapContainer center={defaultCenter} zoom={13} zoomSnap={0.25} wheelPxPerZoomLevel={60} className="map-container">
       <BasemapZoomSnapper basemap={basemap} />
       <FlyToHandler target={flyTarget} onDone={onFlyDone} />
       <TileLayer
@@ -473,7 +474,7 @@ export function MapView({
             setContextMenu(null);
           }}
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="#34a853"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="#34a853" strokeWidth="2"/></svg>
+          <Crosshair size={16} color="#34a853" strokeWidth={2} />
           Establecer como origen
         </button>
         <button
@@ -482,7 +483,7 @@ export function MapView({
             setContextMenu(null);
           }}
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="#ea4335"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          <MapPin size={16} color="#ea4335" strokeWidth={2} />
           Establecer como destino
         </button>
       </div>
