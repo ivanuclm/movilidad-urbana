@@ -211,6 +211,37 @@ def load_gtfs_data(gtfs_dir: Optional[Path] = None) -> GtfsData:
         elif exception_type == "2":  # servicio eliminado ese día
             service_removed_dates.setdefault(service_id, set()).add(date_ymd)
 
+    # -----------------------
+    # Días de servicio por ruta
+    # -----------------------
+    _days_label: Dict[frozenset, str] = {
+        frozenset({0, 1, 2, 3, 4, 5, 6}): "Todos los días",
+        frozenset({0, 1, 2, 3, 4, 5}):    "L–S",
+        frozenset({0, 1, 2, 3, 4}):        "L–V",
+        frozenset({4, 5}):                 "V–S",
+        frozenset({6}):                    "Solo domingos",
+    }
+    _day_abbr = ["L", "M", "X", "J", "V", "S", "D"]
+
+    sid_to_weekday: Dict[str, int] = {}
+    for sid, dates_set in service_added_dates.items():
+        if dates_set:
+            d_str = next(iter(dates_set))
+            d = Date(int(d_str[:4]), int(d_str[4:6]), int(d_str[6:]))
+            sid_to_weekday[sid] = d.weekday()
+
+    for route_id, trip_list in trips_by_route.items():
+        weekdays: Set[int] = set()
+        for trip in trip_list:
+            sid = trip.get("service_id")
+            if sid is not None and sid in sid_to_weekday:
+                weekdays.add(sid_to_weekday[sid])
+        label = _days_label.get(
+            frozenset(weekdays),
+            "/".join(_day_abbr[d] for d in sorted(weekdays)),
+        )
+        routes[route_id]["service_days"] = label if weekdays else None
+
     return GtfsData(
         stops=stops,
         routes=routes,

@@ -216,6 +216,19 @@ html, body, #root {
   font-family: "Roboto Mono", ui-monospace, monospace;
 }
 
+.od-coords--input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  cursor: text;
+}
+.od-coords--input:hover { color: #1a73e8; }
+.od-coords--input:focus { color: #1a73e8; }
+.od-row:focus-within { background: #eef4ff; }
+
 .hint-text {
   font-size: .75rem;
   color: #9aa0a6;
@@ -227,7 +240,9 @@ html, body, #root {
 .mode-toolbar {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
+  margin-top: 12px;
   margin-bottom: 12px;
 }
 
@@ -337,7 +352,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .routes-table tbody tr:last-child td { border-bottom: none; }
 .row-active td { font-weight: 600; color: #1a73e8; }
-.td-mode { display: flex; align-items: center; gap: 6px; }
+.td-mode { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* Fila Bus: separador visual respecto a los modos OSRM */
 .row-transit td { border-top: 2px solid #e8eaed; }
@@ -389,26 +404,112 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 
 /* ── Transit detail list ────────────────────────────────────── */
-.transit-brief {
+.transit-itinerary {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #f1f3f4;
 }
 
-.transit-brief .mini-title {
+.transit-itinerary .mini-title {
   font-size: .8rem;
   font-weight: 600;
   color: #3c4043;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.transit-brief ol {
-  padding-left: 18px;
-  color: #3c4043;
-  font-size: .8rem;
+/* Cabecera resumen del itinerario: salida -> llegada + duración total */
+.itin-summary {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: #e8f0fe;
+  border-radius: 8px;
+}
+.itin-summary__time {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1a73e8;
+  font-variant-numeric: tabular-nums;
+}
+.itin-summary__arrow {
+  color: #5f6368;
+  font-weight: 600;
+}
+.itin-summary__dur {
+  margin-left: auto;
+  font-size: .8rem;
+  font-weight: 600;
+  color: #3c4043;
+  background: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+/* Paso a pie */
+.itin-step--walk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  color: #5f6368;
+  font-size: .8rem;
+}
+.itin-step__icon {
+  display: inline-flex;
+  color: #92400e;
+  flex-shrink: 0;
+}
+.itin-step__text strong { color: #3c4043; font-weight: 600; }
+
+/* Tramo de transporte público */
+.itin-step--transit { margin: 2px 0; }
+
+.itin-leg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 4px 2px;
+}
+.itin-leg-time {
+  font-size: .78rem;
+  font-weight: 600;
+  color: #3c4043;
+  font-variant-numeric: tabular-nums;
+}
+.itin-leg-meta {
+  font-size: .72rem;
+  color: #9aa0a6;
+  margin-left: auto;
+}
+
+/* Diagrama de paradas reutilizado dentro del itinerario (gana por especificidad) */
+.transit-itinerary .stop-diagram {
+  padding: 2px 0 6px 4px;
+  border-bottom: none;
+}
+.itin-stop-time {
+  display: inline-block;
+  width: 38px;
+  color: #9aa0a6;
+  font-variant-numeric: tabular-nums;
+  font-size: .72rem;
+}
+/* Marca de transbordo en seco al final de un tramo del itinerario */
+.itin-transfer {
+  display: flex;
+  align-items: center;
   gap: 6px;
+  margin: 2px 0 6px 26px;
+  font-size: .74rem;
+  font-weight: 600;
+  color: #b06000;
+}
+.transit-itinerary .stop-row__label--terminal {
+  color: #202124 !important;
+  font-weight: 600 !important;
 }
 
 /* ── GTFS stops toggle ──────────────────────────────────────── */
@@ -607,21 +708,44 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .field-block--full { grid-column: 1 / -1; }
 
+/* ── Origen/destino informativo en el panel IA ─────────────── */
+.ia-od {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+.ia-od__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .82rem;
+  color: #202124;
+  font-variant-numeric: tabular-nums;
+}
+.ia-od__row + .ia-od__row { margin-top: 4px; }
+.ia-od__hint {
+  margin: 8px 0 0;
+  font-size: .7rem;
+  color: #9aa0a6;
+  line-height: 1.4;
+}
+
 /* ── Infer button ───────────────────────────────────────────── */
 .infer-button {
   width: 100%;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 9px 16px;
   background: #1a73e8;
   color: #fff;
   border: none;
-  border-radius: 12px;
-  font-size: .95rem;
-  font-weight: 700;
+  border-radius: 10px;
+  font-size: .88rem;
+  font-weight: 600;
   cursor: pointer;
   transition: background 150ms, box-shadow 150ms;
   margin-top: 10px;
@@ -635,9 +759,12 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .infer-button:disabled { background: #9aa0a6; cursor: not-allowed; }
 .infer-model-badge {
-  font-size: .7rem;
-  font-weight: 400;
-  color: rgba(255,255,255,.75);
+  font-size: .68rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255,255,255,.22);
+  padding: 2px 8px;
+  border-radius: 10px;
   letter-spacing: .02em;
 }
 
@@ -649,6 +776,10 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .results-actions > button {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 8px;
   font-size: .78rem;
   border: 1px solid #dadce0;
@@ -938,6 +1069,29 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 .stop-popup__chips { display: flex; flex-wrap: wrap; gap: 4px; }
 
+/* Popup de parada del trayecto OTP: badge de línea, hora destacada y transbordo */
+.stop-popup__line {
+  display: inline-block;
+  margin-bottom: 6px;
+  cursor: default;
+}
+.stop-popup__line:hover { filter: none; }
+.stop-popup__time {
+  font-size: .92rem;
+  font-weight: 700;
+  color: #1a73e8;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+.stop-popup__transfer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #f1f3f4;
+  font-size: .74rem;
+  font-weight: 600;
+  color: #b06000;
+}
+
 .stop-route-chip {
   padding: 3px 9px;
   border: none;
@@ -1015,12 +1169,25 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 
 .map-context-menu__coords {
-  padding: 8px 14px 6px;
-  font-size: .72rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: .75rem;
   font-family: "Roboto Mono", ui-monospace, monospace;
-  color: #9aa0a6;
+  color: #5f6368;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
   border-bottom: 1px solid #f1f3f4;
+  transition: background 80ms;
 }
+.map-context-menu__coords:hover { background: #f1f3f4; }
+.map-context-menu__coords + button { border-top: none; }
+.map-context-menu__coords--copied { color: #34a853; }
 
 .map-context-menu button {
   display: flex;
@@ -1149,7 +1316,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   padding: 5px 12px 5px 10px !important;
   background: transparent !important;
   border: none !important;
-  border-left: 3px solid transparent !important;
+  border-left: 3px solid var(--vborder, transparent) !important;
   border-radius: 0 !important;
   cursor: pointer !important;
   text-align: left !important;
@@ -1168,6 +1335,18 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gtfs-variant-days {
+  margin-left: auto;
+  font-size: .64rem;
+  font-weight: 600;
+  color: #80868b;
+  background: #f1f3f4;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
@@ -1210,9 +1389,11 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   flex: 1;
   background: var(--route-color, #f97316);
   min-height: 5px;
+  box-shadow: 1px 0 0 var(--route-outline, transparent), -1px 0 0 var(--route-outline, transparent);
 }
 .stop-row__seg--none {
   background: transparent;
+  box-shadow: none;
 }
 
 .stop-row__dot {
@@ -1223,6 +1404,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   background: #fff;
   flex-shrink: 0;
   z-index: 1;
+  box-shadow: 0 0 0 1px var(--route-outline, transparent);
 }
 .stop-row__dot--terminal {
   width: 11px;
@@ -1309,11 +1491,98 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
 }
 
 .gtfs-mins {
-  padding: 2px 4px 2px 8px;
+  padding: 2px 4px 2px 6px;
   color: #3c4043;
-  letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 10px;
+  align-items: baseline;
 }
+
+/* ── No-service notice ───────────────────────────────────────── */
+.gtfs-no-service {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 12px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border-left: 3px solid #dadce0;
+  border-radius: 0 4px 4px 0;
+  font-size: .75rem;
+}
+
+.gtfs-no-service__msg {
+  color: #5f6368;
+  font-weight: 500;
+}
+
+.gtfs-no-service__days {
+  color: #9aa0a6;
+}
+
+.gtfs-no-service__days strong {
+  color: #3c4043;
+  font-weight: 600;
+}
+
+/* ── Schedule day selector ───────────────────────────────────── */
+/* ── Control global de fecha/hora del viaje (overlay sobre el mapa) ── */
+.trip-datetime {
+  position: fixed;
+  top: 16px;
+  left: 76px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.18);
+  transition: left 180ms ease;
+}
+.trip-datetime--shifted {
+  left: 436px; /* tras el rail (64) + panel (360) + margen */
+}
+.trip-datetime__icon { color: #1a73e8; flex-shrink: 0; }
+.trip-datetime__date,
+.trip-datetime__time {
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  height: 30px;
+  padding: 0 6px;
+  font-size: .8rem;
+  font-family: inherit;
+  color: #202124;
+}
+.trip-datetime__date { width: 132px; }
+.trip-datetime__time { width: 80px; }
+
+/* ── Horarios: resaltado pasado / próximo / futuro según la hora elegida ── */
+.gtfs-min--past   { color: #bdc1c6; }
+.gtfs-min--future { color: #1a73e8; }
+.gtfs-min--next {
+  color: #1a73e8;
+  font-weight: 700;
+  background: #e8f0fe;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.gtfs-schedule-nonext {
+  font-size: .74rem;
+  color: #b06000;
+  background: #fef7e0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+}
+
+/* ── Panel IA: día y hora del viaje (solo lectura, derivado del control) ── */
+.trip-when-note { gap: 3px; }
+.trip-when-value { font-size: .85rem; font-weight: 600; color: #202124; }
+.trip-when-hint { font-size: .7rem; color: #9aa0a6; }
 
 /* ── Settings Panel ──────────────────────────────────────────── */
 .settings-section {
@@ -1339,6 +1608,7 @@ button.secondary-button:hover:not(:disabled) { background: #f1f3f4; }
   margin-bottom: 10px;
   line-height: 1.45;
 }
+
 
 .model-option {
   display: flex;
@@ -1582,4 +1852,79 @@ details[open].model-instructions > summary::before {
   color: #9aa0a6;
   text-align: center;
   line-height: 1.5;
+}
+
+/* ── Map controls overlay ───────────────────────────────────── */
+.map-controls {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.map-controls--bottom-right {
+  bottom: 32px;
+  right: 16px;
+}
+
+.map-controls--top-right {
+  top: 16px;
+  right: 16px;
+}
+
+.map-controls__group {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
+  overflow: hidden;
+}
+
+.map-controls__group--horizontal {
+  flex-direction: row;
+}
+
+.map-control-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3c4043;
+  border-top: 1px solid #e8eaed;
+  transition: background .12s, color .12s;
+  padding: 0;
+}
+
+.map-control-btn:first-child {
+  border-top: none;
+}
+
+.map-controls__group--horizontal .map-control-btn {
+  border-top: none;
+  border-left: 1px solid #e8eaed;
+}
+
+.map-controls__group--horizontal .map-control-btn:first-child {
+  border-left: none;
+}
+
+.map-control-btn:hover:not(:disabled) {
+  background: #f1f3f4;
+  color: #1a73e8;
+}
+
+.map-control-btn--clear:hover:not(:disabled) {
+  color: #d93025;
+}
+
+.map-control-btn:disabled {
+  color: #bdc1c6;
+  cursor: not-allowed;
 }

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Car, Bike, Footprints, Bus, Play, Square, ChevronLeft, ChevronRight, ChevronDown, MapPin, Route, Activity, Layers, Settings, X, Search, Briefcase, GraduationCap, House, Info } from "lucide-react";
+import { Car, Bike, Footprints, Bus, Play, Square, ChevronLeft, ChevronRight, ChevronDown, MapPin, Route, Activity, Layers, Settings, X, Search, Briefcase, GraduationCap, House, Info, CalendarClock, BarChart3, Table2 } from "lucide-react";
 import { MapView } from "./components/MapView";
 import "./App.css";
 
@@ -12,6 +12,14 @@ type UiMode = Profile | "transit";
 type BasemapMode = "light" | "color" | "osm" | "relief" | "satellite" | "pnoa";
 
 type Point = { lat: number; lon: number };
+
+type TransitStop = {
+  name?: string | null;
+  lat: number;
+  lon: number;
+  stop_id?: string | null;
+  time?: string | null;
+};
 
 type TransitSegment = {
   mode: string;
@@ -27,6 +35,7 @@ type TransitSegment = {
   to_stop_name?: string | null;
   departure?: string | null;
   arrival?: string | null;
+  stops?: TransitStop[];
 };
 
 type TransitResult = {
@@ -36,6 +45,8 @@ type TransitResult = {
   segments: TransitSegment[];
   itinerary_index: number;
   total_itineraries: number;
+  start_time?: string | null; // hora de salida del viaje completo "HH:MM"
+  end_time?: string | null;   // hora de llegada del viaje completo "HH:MM"
 };
 
 type TransitRouteResponse = {
@@ -105,6 +116,7 @@ type TransitRouteListItem = {
   agency_id?: string;
   color?: string | null;
   text_color?: string | null;
+  service_days?: string | null;
 };
 
 type TransitDirectionSchedule = {
@@ -199,12 +211,16 @@ async function fetchRoutes(
 async function fetchTransitRoute(
   origin: Point,
   destination: Point,
-  itineraryIndex?: number | null
+  itineraryIndex?: number | null,
+  date?: string,
+  time?: string
 ): Promise<TransitResult> {
   const payload: any = { origin, destination };
   if (typeof itineraryIndex === "number") {
     payload.itinerary_index = itineraryIndex;
   }
+  if (date) payload.date = date;
+  if (time) payload.time = time;
 
   const res = await fetch(`${API_BASE_URL}/api/otp/routes`, {
     method: "POST",
@@ -404,6 +420,9 @@ const PROFILE_PRESETS: {
   },
 ];
 
+// Perfil aplicado por defecto al cargar la app (también fija la fecha/hora del viaje).
+const DEFAULT_PRESET = PROFILE_PRESETS[0]; // Commuter
+
 const MODEL_VARIANT_LABELS: Record<string, string> = {
   xgb: "XGBoost",
   rf:  "Random Forest",
@@ -484,6 +503,69 @@ function routeTextColor(r: { text_color?: string | null }): string {
   return r.text_color ? `#${r.text_color}` : 'white';
 }
 
+// Detecta si un color (hex de 3/6 díg., "white" o hsl) es blanco o casi blanco,
+// para añadirle un contorno oscuro y que no se pierda sobre fondos claros.
+function isLightColor(color: string | null | undefined): boolean {
+  if (!color) return false;
+  const c = color.trim().toLowerCase();
+  if (c === "white") return true;
+  const hsl = c.match(/^hsl\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*([\d.]+)%/);
+  if (hsl) return parseFloat(hsl[1]) >= 90;
+  let hex = c.startsWith("#") ? c.slice(1) : c;
+  if (hex.length === 3) hex = hex.split("").map((ch) => ch + ch).join("");
+  if (!/^[0-9a-f]{6}$/.test(hex)) return false;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 >= 0.9;
+}
+
+// Contorno negro inline para badges/puntos cuyo color de línea es muy claro.
+function lineOutline(color: string): React.CSSProperties {
+  return isLightColor(color) ? { boxShadow: "0 0 0 1px #000" } : {};
+}
+
+// Resuelve la línea GTFS (con su color real) que corresponde a un segmento de
+// transporte de OTP. OTP devuelve route_id prefijado con el feedId (p.ej.
+// "1:50011"), así que probamos: id exacto, id sin prefijo y, en último término,
+// short_name (mismo criterio que el panel Red, que agrupa por short_name).
+function resolveGtfsRoute(
+  seg: TransitSegment,
+  routes?: TransitRouteListItem[]
+): TransitRouteListItem | undefined {
+  if (!routes) return undefined;
+  const rid = seg.route_id ?? undefined;
+  if (rid) {
+    const exact = routes.find((r) => r.id === rid);
+    if (exact) return exact;
+    const bare = rid.includes(":") ? rid.slice(rid.lastIndexOf(":") + 1) : rid;
+    const byBare = routes.find((r) => r.id === bare);
+    if (byBare) return byBare;
+  }
+  const sn = seg.route_short_name ?? undefined;
+  if (sn) return routes.find((r) => r.short_name === sn);
+  return undefined;
+}
+
+// Color, color de texto y etiqueta de un tramo de transporte, coherentes con el
+// badge del panel Red. Si no se resuelve la línea GTFS, cae al hash de respaldo.
+function transitLegChip(
+  seg: TransitSegment,
+  routes?: TransitRouteListItem[]
+): { color: string; textColor: string; label: string } {
+  const gtfs = resolveGtfsRoute(seg, routes);
+  const label =
+    seg.route_short_name || seg.route_long_name || gtfs?.short_name || seg.route_id || "Bus";
+  if (gtfs) {
+    return { color: routeColor(gtfs), textColor: routeTextColor(gtfs), label };
+  }
+  return {
+    color: hslForKey(seg.route_short_name || seg.route_id || "bus"),
+    textColor: "white",
+    label,
+  };
+}
+
 function linearHourToTimeString(hour: number): string {
   const totalMinutes = Math.max(0, Math.min(24 * 60 - 1, Math.round(hour * 60)));
   const hh = Math.floor(totalMinutes / 60)
@@ -497,6 +579,19 @@ function timeStringToLinearHour(value: string): number {
   const [h, m] = value.split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return 12;
   return h + m / 60;
+}
+
+// Semana de referencia dentro de la ventana del feed (lun 2026-05-11 … dom 2026-05-17),
+// para que los presets que indican día de la semana fijen una fecha real con servicio.
+const REFERENCE_WEEK: Record<number, string> = {
+  1: '2026-05-11', 2: '2026-05-12', 3: '2026-05-13', 4: '2026-05-14',
+  5: '2026-05-15', 6: '2026-05-16', 7: '2026-05-17',
+};
+
+// Día de la semana (1=lunes … 7=domingo) de una fecha YYYY-MM-DD.
+function deriveDayOfWeek(dateStr: string): number {
+  const js = new Date(dateStr + 'T00:00:00').getDay(); // 0=domingo … 6=sábado
+  return js === 0 ? 7 : js;
 }
 
 function groupByHour(departures: string[]): [string, string[]][] {
@@ -518,12 +613,25 @@ function PresetIcon({ id, size = 15 }: { id: string; size?: number }) {
   return <House {...props} />;
 }
 
+function parseCoords(text: string): Point | null {
+  const parts = text.split(',');
+  if (parts.length !== 2) return null;
+  const lat = parseFloat(parts[0].trim());
+  const lon = parseFloat(parts[1].trim());
+  if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
 function App() {
-  const [origin, setOrigin] = useState<Point>({ lat: 39.87029, lon: -4.03434 });
+  const [origin, setOrigin] = useState<Point>({ lat: 39.87845, lon: -4.03703 });
   const [destination, setDestination] = useState<Point>({
-    lat: 39.85968,
-    lon: -4.00525,
+    lat: 39.86007,
+    lon: -4.00228,
   });
+  const [originText, setOriginText] = useState('39.87845, -4.03703');
+  const [destText, setDestText]     = useState('39.86007, -4.00228');
+  const [originFocused, setOriginFocused] = useState(false);
+  const [destFocused, setDestFocused]     = useState(false);
 
   const [selectedModes, setSelectedModes] = useState<Set<UiMode>>(new Set(["driving"]));
   const [basemap, setBasemap] = useState<BasemapMode>("color");
@@ -534,32 +642,27 @@ function App() {
     string | null
   >(null);
   const [highlightedStopId, setHighlightedStopId] = useState<string | null>(null);
+  // Parada resaltada del Detalle del itinerario, clave "segIdx-stopIdx" (una parada
+  // física puede repetirse entre tramos en un transbordo, por eso no se usa stop_id).
+  const [highlightedItinStop, setHighlightedItinStop] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<Point | null>(null);
 
-  // Fecha por defecto = última fecha válida del feed GTFS activo (22/05/2026).
-  // El feed cubre 22/02/2026–22/05/2026; fuera de ese rango el backend devuelve vacío.
-  // Mismo parche que OTP (date=2025-12-01): usar fecha fija dentro del rango del feed.
-  const [scheduleDate, setScheduleDate] = useState<string>('2026-05-22');
+  // Fecha/hora del viaje. Por defecto = las del preset inicial (Commuter): su día de
+  // la semana mapeado a la semana de referencia del feed, y su hora de salida. El feed
+  // cubre 22/02/2026–22/05/2026; el control del mapa acota la selección a ese rango.
+  const [scheduleDate, setScheduleDate] = useState<string>(REFERENCE_WEEK[DEFAULT_PRESET.values.day_of_week]);
+  const [otpTime, setOtpTime] = useState<string>(linearHourToTimeString(DEFAULT_PRESET.values.start_time_linear));
   const [activePanel, setActivePanel] = useState<'about' | 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings' | null>('about');
   const [showDebugModal, setShowDebugModal] = useState(false);
   const [activeModel, setActiveModel] = useState<LpmcVariant>('xgb');
   const [changedFields, setChangedFields] = useState<Set<keyof LpmcUserProfile>>(new Set());
   const [presetInfoAnchor, setPresetInfoAnchor] = useState<{ id: string; rect: DOMRect } | null>(null);
   const changedFieldsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [lpmcProfile, setLpmcProfile] = useState<LpmcUserProfile>({
-    purpose: "HBW",
-    fueltype: "Average",
-    day_of_week: 3,
-    start_time_linear: 12,
-    age: 35,
-    female: 0,
-    driving_license: 1,
-    car_ownership: 1,
-    cost_transit: 1.5,
-    cost_driving_total: 3,
-  });
+  const hasCalculated = useRef(false);
+  const autoCalcMounted = useRef(false);
+  const [lpmcProfile, setLpmcProfile] = useState<LpmcUserProfile>(DEFAULT_PRESET.values);
 
-  function togglePanel(panel: 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings') {
+  function togglePanel(panel: 'about' | 'routes' | 'gtfs' | 'predict' | 'layers' | 'settings') {
     setActivePanel((prev) => (prev === panel ? null : panel));
   }
 
@@ -569,6 +672,10 @@ function App() {
       if (lpmcProfile[k] !== values[k]) changed.add(k);
     });
     setLpmcProfile(values);
+    // El preset también define el "cuándo": fija la fecha/hora global del viaje
+    // a partir de su día de la semana (semana de referencia) y hora de salida.
+    setScheduleDate(REFERENCE_WEEK[values.day_of_week] ?? scheduleDate);
+    setOtpTime(linearHourToTimeString(values.start_time_linear));
     setChangedFields(changed);
     if (changedFieldsTimer.current) clearTimeout(changedFieldsTimer.current);
     changedFieldsTimer.current = setTimeout(() => setChangedFields(new Set()), 850);
@@ -598,7 +705,7 @@ function App() {
 
   const transitMutation = useMutation<TransitResult, Error, number | null>({
     mutationFn: (idxOverride) =>
-      fetchTransitRoute(origin, destination, idxOverride ?? transitItineraryIndex),
+      fetchTransitRoute(origin, destination, idxOverride ?? transitItineraryIndex, scheduleDate, otpTime),
   });
 
   const lpmcPredictMutation = useMutation<
@@ -638,19 +745,70 @@ function App() {
     }
   }, [lpmcModelsQuery.data]);
 
+  useEffect(() => {
+    if (!originFocused) setOriginText(`${origin.lat.toFixed(5)}, ${origin.lon.toFixed(5)}`);
+  }, [origin, originFocused]);
+
+  useEffect(() => {
+    if (!destFocused) setDestText(`${destination.lat.toFixed(5)}, ${destination.lon.toFixed(5)}`);
+  }, [destination, destFocused]);
+
+  useEffect(() => {
+    if (!autoCalcMounted.current) { autoCalcMounted.current = true; return; }
+    if (!hasCalculated.current) return;
+    osrmMutation.mutate();
+    setTransitItineraryIndex(0);
+    transitMutation.mutate(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, destination]);
+
+  // Al cambiar fecha u hora (panel Ajustes, o botones de día del panel Red), si
+  // ya se calculó alguna vez, se relanza solo OTP (OSRM no depende de la hora).
+  useEffect(() => {
+    if (!hasCalculated.current) return;
+    setTransitItineraryIndex(0);
+    transitMutation.mutate(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleDate, otpTime]);
+
+  // El día y la hora del perfil LPMC se derivan siempre del viaje global (control del mapa).
+  useEffect(() => {
+    setLpmcProfile((p) => ({
+      ...p,
+      day_of_week: deriveDayOfWeek(scheduleDate),
+      start_time_linear: timeStringToLinearHour(otpTime),
+    }));
+  }, [scheduleDate, otpTime]);
+
   const isCalculating = osrmMutation.isPending || transitMutation.isPending;
+
+  const handleClearRoutes = () => {
+    osrmMutation.reset();
+    transitMutation.reset();
+    setTransitItineraryIndex(0);
+    setHighlightedItinStop(null);
+    hasCalculated.current = false;
+  };
+  const handleClearBus = () => {
+    setSelectedTransitRouteId(null);
+    setHighlightedStopId(null);
+  };
+  const handleClearAll = () => {
+    hasCalculated.current = false;
+    osrmMutation.reset();
+    transitMutation.reset();
+    setTransitItineraryIndex(0);
+    setSelectedTransitRouteId(null);
+    setHighlightedStopId(null);
+    setHighlightedItinStop(null);
+    setOrigin({ lat: 39.87845, lon: -4.03703 });
+    setDestination({ lat: 39.86007, lon: -4.00228 });
+  };
 
   const transitResult = transitMutation.data ?? null;
   const totalItineraries = transitResult?.total_itineraries ?? 0;
-  const mainTransitSegment = transitResult?.segments.find(
-    (s) => s.mode !== "WALK"
-  );
-
-  const transitLineLabel = mainTransitSegment
-    ? mainTransitSegment.route_short_name ||
-      mainTransitSegment.route_long_name ||
-      mainTransitSegment.route_id
-    : null;
+  // Todos los tramos de transporte público del itinerario (uno por transbordo).
+  const transitLegs = transitResult?.segments.filter((s) => s.mode !== "WALK") ?? [];
 
 
   // ------------- GTFS: paradas -------------
@@ -677,12 +835,12 @@ function App() {
     },
   });
 
-  const transitLineRoute = mainTransitSegment?.route_id
-    ? gtfsRoutesQuery.data?.find(r => r.id === mainTransitSegment!.route_id)
-    : undefined;
-  const lineChipColor = transitLineRoute
-    ? routeColor(transitLineRoute)
-    : hslForKey(transitLineLabel ?? 'bus');
+  // Info de línea (color/texto/etiqueta) por índice de segment; undefined en tramos a pie.
+  // Sirve para colorear el popup de las paradas OTP del mapa y detectar transbordos en seco.
+  // Se define tras gtfsRoutesQuery porque depende de sus datos.
+  const transitLegInfo = (transitResult?.segments ?? []).map((seg) =>
+    seg.mode === "WALK" ? undefined : transitLegChip(seg, gtfsRoutesQuery.data)
+  );
 
   // ------------- GTFS: detalles de la ruta seleccionada -------------
   // El GTFS de Toledo no tiene direction_id: cada sentido es un route_id distinto
@@ -779,6 +937,29 @@ function App() {
 
   return (
     <div className="app-root">
+      {/* Control global de fecha/hora del viaje — esquina superior izquierda.
+          Gobierna OTP (Rutas), los horarios (Red) y el día/hora del perfil (IA). */}
+      <div className={`trip-datetime${activePanel ? ' trip-datetime--shifted' : ''}`}>
+        <CalendarClock size={16} strokeWidth={1.75} className="trip-datetime__icon" />
+        <input
+          type="date"
+          className="trip-datetime__date"
+          value={scheduleDate}
+          min="2026-02-22"
+          max="2026-05-22"
+          onChange={(e) => setScheduleDate(e.target.value)}
+          aria-label="Fecha del viaje"
+        />
+        <input
+          type="time"
+          className="trip-datetime__time"
+          value={otpTime}
+          step={300}
+          onChange={(e) => setOtpTime(e.target.value)}
+          aria-label="Hora del viaje"
+        />
+      </div>
+
       {/* Map — fullscreen background */}
       <MapView
             origin={origin}
@@ -802,9 +983,16 @@ function App() {
             transitSegments={
               selectedModes.has("transit") ? transitResult?.segments ?? [] : []
             }
+            transitLegInfo={selectedModes.has("transit") ? transitLegInfo : []}
+            highlightedItinStop={highlightedItinStop ?? undefined}
             flyTarget={flyTarget}
             onFlyDone={() => setFlyTarget(null)}
             highlightedStopId={highlightedStopId ?? undefined}
+            hasRoutes={!!(osrmMutation.data || transitMutation.data)}
+            hasBus={!!selectedTransitRouteId}
+            onClearRoutes={handleClearRoutes}
+            onClearBus={handleClearBus}
+            onClearAll={handleClearAll}
       />
 
       {/* Sidebar */}
@@ -914,16 +1102,16 @@ function App() {
 
                   <div className="about-panel-section">Créditos</div>
                   <div className="about-panel-credits">
-                    <div className="about-panel-credit-row"><span>Autor</span><span>Iván Hernández</span></div>
-                    <div className="about-panel-credit-row"><span>Tutor</span><span>José Martín Baos</span></div>
+                    <div className="about-panel-credit-row"><span>Autor</span><span>Iván Vicente Hernández García de Mora</span></div>
+                    <div className="about-panel-credit-row"><span>Tutor</span><span>José Ángel Martín Baos</span></div>
                     <div className="about-panel-credit-row"><span>Centro</span><span>ESIIAB, UCLM</span></div>
                     <div className="about-panel-credit-row"><span>Dataset</span><span>LPMC — Hillel et al., 2018</span></div>
-                    <div className="about-panel-credit-row"><span>GTFS</span><span>Bus Urbano de Toledo, NAP</span></div>
+                    <div className="about-panel-credit-row"><span>GTFS</span><span>Unauto (Grupo Ruiz), NAP</span></div>
                     <div className="about-panel-credit-row"><span>Cartografía</span><span>© OpenStreetMap contributors</span></div>
                   </div>
 
                   <div className="about-panel-footer">
-                    Trabajo de Fin de Máster · MUII · Convocatoria ordinaria julio 2026
+                    Trabajo de Fin de Máster · MUII · 2025/2026
                   </div>
                 </div>
               )}
@@ -936,16 +1124,68 @@ function App() {
                       <span className="od-icon od-icon--origin">
                         <Play size={18} fill="currentColor" strokeWidth={0} />
                       </span>
-                      <span className="od-coords">{origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}</span>
+                      <input
+                        className="od-coords od-coords--input"
+                        value={originText}
+                        onChange={(e) => setOriginText(e.target.value)}
+                        onFocus={() => setOriginFocused(true)}
+                        onBlur={() => {
+                          setOriginFocused(false);
+                          const p = parseCoords(originText);
+                          if (p) setOrigin(p);
+                          else setOriginText(`${origin.lat.toFixed(5)}, ${origin.lon.toFixed(5)}`);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+                          if (e.key === 'Escape') {
+                            setOriginText(`${origin.lat.toFixed(5)}, ${origin.lon.toFixed(5)}`);
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        placeholder="lat, lon"
+                        aria-label="Coordenadas de origen"
+                      />
                     </div>
                     <div className="od-row">
                       <span className="od-icon od-icon--dest">
                         <Square size={17} fill="currentColor" strokeWidth={0} />
                       </span>
-                      <span className="od-coords">{destination.lat.toFixed(4)}, {destination.lon.toFixed(4)}</span>
+                      <input
+                        className="od-coords od-coords--input"
+                        value={destText}
+                        onChange={(e) => setDestText(e.target.value)}
+                        onFocus={() => setDestFocused(true)}
+                        onBlur={() => {
+                          setDestFocused(false);
+                          const p = parseCoords(destText);
+                          if (p) setDestination(p);
+                          else setDestText(`${destination.lat.toFixed(5)}, ${destination.lon.toFixed(5)}`);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+                          if (e.key === 'Escape') {
+                            setDestText(`${destination.lat.toFixed(5)}, ${destination.lon.toFixed(5)}`);
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        placeholder="lat, lon"
+                        aria-label="Coordenadas de destino"
+                      />
                     </div>
                   </div>
-                  <p className="hint-text">Clic derecho en el mapa para establecer origen o destino.</p>
+
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      hasCalculated.current = true;
+                      osrmMutation.mutate();
+                      setTransitItineraryIndex(0);
+                      transitMutation.mutate(0);
+                    }}
+                    disabled={isCalculating}
+                  >
+                    {isCalculating ? 'Calculando...' : 'Calcular rutas'}
+                  </button>
 
                   <div className="mode-toolbar">
                     {(["driving", "cycling", "foot"] as Profile[]).map((p) => (
@@ -971,18 +1211,6 @@ function App() {
                     </button>
                   </div>
 
-                  <button
-                    className="primary-button"
-                    onClick={() => {
-                      osrmMutation.mutate();
-                      setTransitItineraryIndex(0);
-                      transitMutation.mutate(0);
-                    }}
-                    disabled={isCalculating}
-                  >
-                    {isCalculating ? 'Calculando...' : 'Calcular rutas'}
-                  </button>
-
                   {osrmMutation.error && <p className="error-text">Error OSRM: {(osrmMutation.error as Error).message}</p>}
                   {transitMutation.error && <p className="error-text">Error OTP: {(transitMutation.error as Error).message}</p>}
 
@@ -1004,11 +1232,18 @@ function App() {
                             <td className="td-mode">
                               <ModeIcon mode="transit" size={14} />
                               <span>Bus</span>
-                              {transitLineLabel && (
-                                <span className="line-chip-inline" style={{ background: lineChipColor }}>
-                                  {transitLineLabel}
-                                </span>
-                              )}
+                              {transitLegs.map((seg, i) => {
+                                const chip = transitLegChip(seg, gtfsRoutesQuery.data);
+                                return (
+                                  <span
+                                    key={i}
+                                    className="line-chip-inline"
+                                    style={{ background: chip.color, color: chip.textColor, ...lineOutline(chip.color) }}
+                                  >
+                                    {chip.label}
+                                  </span>
+                                );
+                              })}
                             </td>
                             <td>{(transitMutation.data.distance_m / 1000).toFixed(2)} km</td>
                             <td>{(transitMutation.data.duration_s / 60).toFixed(0)} min</td>
@@ -1048,32 +1283,91 @@ function App() {
                   )}
 
                   {selectedModes.has("transit") && transitResult && (
-                    <div className="transit-brief">
+                    <div className="transit-itinerary">
                       <h3 className="mini-title">Detalle del itinerario</h3>
-                      <ol>
-                        {transitResult.segments.map((seg, idx) => {
-                          const distKm = seg.distance_m / 1000;
-                          const durMin = seg.duration_s / 60;
-                          if (seg.mode === 'WALK') {
-                            return (
-                              <li key={idx}>
-                                Caminar {distKm.toFixed(2)} km ({durMin.toFixed(0)} min)
-                                {seg.to_stop_name && <> hasta <strong>{seg.to_stop_name}</strong></>}
-                              </li>
-                            );
-                          }
-                          const label = seg.route_short_name || seg.route_long_name || seg.route_id || seg.mode;
+                      {(transitResult.start_time || transitResult.end_time) && (
+                        <div className="itin-summary">
+                          <span className="itin-summary__time">{transitResult.start_time ?? '--:--'}</span>
+                          <span className="itin-summary__arrow">→</span>
+                          <span className="itin-summary__time">{transitResult.end_time ?? '--:--'}</span>
+                          <span className="itin-summary__dur">{(transitResult.duration_s / 60).toFixed(0)} min</span>
+                        </div>
+                      )}
+                      {transitResult.segments.map((seg, idx) => {
+                        const distKm = seg.distance_m / 1000;
+                        const durMin = seg.duration_s / 60;
+
+                        if (seg.mode === 'WALK') {
                           return (
-                            <li key={idx}>
-                              {seg.departure && <span>{seg.departure} · </span>}
-                              <strong>Línea {label}</strong>
-                              {seg.from_stop_name && seg.to_stop_name && <> de <strong>{seg.from_stop_name}</strong> a <strong>{seg.to_stop_name}</strong></>}
-                              {' · '}{distKm.toFixed(2)} km ({durMin.toFixed(0)} min)
-                              {seg.arrival && <> · llegada {seg.arrival}</>}
-                            </li>
+                            <div key={idx} className="itin-step itin-step--walk">
+                              <span className="itin-step__icon"><Footprints size={16} strokeWidth={1.75} /></span>
+                              <span className="itin-step__text">
+                                Caminar {distKm.toFixed(2)} km · {durMin.toFixed(0)} min
+                                {seg.to_stop_name && <> hasta <strong>{seg.to_stop_name}</strong></>}
+                              </span>
+                            </div>
                           );
-                        })}
-                      </ol>
+                        }
+
+                        const chip = transitLegChip(seg, gtfsRoutesQuery.data);
+                        const stops = seg.stops ?? [];
+                        return (
+                          <div key={idx} className="itin-step itin-step--transit">
+                            <div className="itin-leg-head">
+                              <span className="line-chip-inline" style={{ background: chip.color, color: chip.textColor, ...lineOutline(chip.color) }}>
+                                {chip.label}
+                              </span>
+                              {(seg.departure || seg.arrival) && (
+                                <span className="itin-leg-time">{seg.departure}{seg.arrival ? ` – ${seg.arrival}` : ''}</span>
+                              )}
+                              <span className="itin-leg-meta">{distKm.toFixed(2)} km · {durMin.toFixed(0)} min</span>
+                            </div>
+
+                            {stops.length > 0 && (
+                              <div
+                                className="stop-diagram stop-diagram--itin"
+                                style={{ '--route-color': chip.color, '--route-outline': isLightColor(chip.color) ? '#000' : 'transparent' } as React.CSSProperties}
+                              >
+                                {stops.map((stop, sidx) => {
+                                  const isFirst = sidx === 0;
+                                  const isLast = sidx === stops.length - 1;
+                                  const isTerminal = isFirst || isLast;
+                                  const isHl = highlightedItinStop === `${idx}-${sidx}`;
+                                  return (
+                                    <div key={sidx} className={`stop-row${isHl ? ' stop-row--hl' : ''}`}>
+                                      <div className="stop-row__track">
+                                        <div className={`stop-row__seg${isFirst ? ' stop-row__seg--none' : ''}`} />
+                                        <div className={`stop-row__dot${isTerminal ? ' stop-row__dot--terminal' : ''}${isHl ? ' stop-row__dot--hl' : ''}`} />
+                                        <div className={`stop-row__seg${isLast ? ' stop-row__seg--none' : ''}`} />
+                                      </div>
+                                      <button
+                                        className={`stop-row__label${isTerminal ? ' stop-row__label--terminal' : ''}`}
+                                        onClick={() => { setFlyTarget({ lat: stop.lat, lon: stop.lon }); setHighlightedItinStop(`${idx}-${sidx}`); }}
+                                      >
+                                        {stop.time && <span className="itin-stop-time">{stop.time}</span>}
+                                        <span className="itin-stop-name">{stop.name}</span>
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Transbordo en seco: el siguiente tramo es transporte (sin caminar) */}
+                            {transitLegInfo[idx + 1] && (
+                              <div className="itin-transfer">
+                                Transbordo a{' '}
+                                <span
+                                  className="line-chip-inline"
+                                  style={{ background: transitLegInfo[idx + 1]!.color, color: transitLegInfo[idx + 1]!.textColor, ...lineOutline(transitLegInfo[idx + 1]!.color) }}
+                                >
+                                  {transitLegInfo[idx + 1]!.label}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </>
@@ -1082,13 +1376,6 @@ function App() {
               {/* ════ GTFS ════ */}
               {activePanel === 'gtfs' && (
                 <>
-                  {/* Controles siempre visibles */}
-                  <div className="field-block" style={{ marginBottom: '2px' }}>
-                    <span className="field-label">Fecha horarios</span>
-                    <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
-                  </div>
-                  <p style={{ fontSize: '.7rem', color: '#9aa0a6', marginBottom: '10px' }}>Feed: 22/02/2026 – 22/05/2026</p>
-
                   {/* Buscador */}
                   <div style={{ marginBottom: '10px', position: 'relative' }}>
                     <input
@@ -1129,7 +1416,7 @@ function App() {
                               }
                             }}
                           >
-                            <span className="gtfs-line-badge" style={{ background: color, color: routeTextColor(r) }}>{r.short_name || r.id}</span>
+                            <span className="gtfs-line-badge" style={{ background: color, color: routeTextColor(r), ...lineOutline(color) }}>{r.short_name || r.id}</span>
                             <span className="gtfs-line-name">{r.long_name || ''}</span>
                             {hasVariants && (
                               <ChevronDown size={14} strokeWidth={2.5} className={`gtfs-chevron${isOpen ? ' gtfs-chevron--open' : ''}`} />
@@ -1148,11 +1435,14 @@ function App() {
                                       <button
                                         key={rid}
                                         className={`gtfs-variant-item${active ? ' gtfs-variant-item--active' : ''}`}
-                                        style={{ borderLeftColor: active ? color : '#e8eaed' }}
+                                        style={{ '--vborder': active ? color : '#e8eaed' } as React.CSSProperties}
                                         onClick={() => setSelectedTransitRouteId(rid)}
                                       >
-                                        <span className="gtfs-variant-dot" style={{ background: active ? color : '#9aa0a6' }} />
+                                        <span className="gtfs-variant-dot" style={{ background: active ? color : '#9aa0a6', ...(active ? lineOutline(color) : {}) }} />
                                         <span>{info?.long_name || rid}</span>
+                                        {info?.service_days && (
+                                          <span className="gtfs-variant-days">{info.service_days}</span>
+                                        )}
                                       </button>
                                     );
                                   })}
@@ -1165,7 +1455,7 @@ function App() {
 
                               {/* Diagrama de paradas */}
                               {transitRouteStops.length > 0 && (
-                                <div className="stop-diagram" style={{ '--route-color': color } as React.CSSProperties}>
+                                <div className="stop-diagram" style={{ '--route-color': color, '--route-outline': isLightColor(color) ? '#000' : 'transparent' } as React.CSSProperties}>
                                   <div className="stop-diagram-title">{transitRouteStops.length} paradas</div>
                                   {transitRouteStops.map((stop, idx) => {
                                     const isFirst = idx === 0;
@@ -1190,34 +1480,64 @@ function App() {
 
                               {/* Horarios */}
                               {transitScheduleQuery.isLoading && <p style={{ fontSize: '.75rem', color: '#9aa0a6', padding: '6px 12px' }}>Cargando horarios…</p>}
-                              {transitScheduleQuery.data && (
-                                transitScheduleQuery.data.directions.length === 0
-                                  ? <p style={{ fontSize: '.8rem', color: '#5f6368', padding: '6px 12px' }}>No hay servicios para esta fecha.</p>
-                                  : <div className="gtfs-schedule">
-                                      <div className="gtfs-schedule-title">Salidas</div>
-                                      {transitScheduleQuery.data.directions.map((dir, didx) => {
-                                        const hourRows = groupByHour(dir.departures);
-                                        return (
-                                          <div key={didx} className="gtfs-schedule-section">
-                                            {transitScheduleQuery.data!.directions.length > 1 && (
-                                              <div className="gtfs-schedule-dir">{dir.headsign || `Dirección ${didx + 1}`}</div>
-                                            )}
-                                            <div className="gtfs-schedule-meta">{dir.trip_count} viajes · {stripSeconds(dir.first_departure)} – {stripSeconds(dir.last_departure)}</div>
-                                            <table className="gtfs-schedule-table">
-                                              <tbody>
-                                                {hourRows.map(([hour, mins]) => (
-                                                  <tr key={hour}>
-                                                    <td className="gtfs-hour">{hour}</td>
-                                                    <td className="gtfs-mins">{mins.join(' ')}</td>
-                                                  </tr>
-                                                ))}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        );
-                                      })}
+                              {transitScheduleQuery.data && (() => {
+                                const activeMeta = gtfsRoutesQuery.data?.find(r => r.id === activeRouteId);
+                                if (transitScheduleQuery.data.directions.length === 0) {
+                                  return (
+                                    <div className="gtfs-no-service">
+                                      <span className="gtfs-no-service__msg">No circula este día</span>
+                                      {activeMeta?.service_days && (
+                                        <span className="gtfs-no-service__days">Circula: <strong>{activeMeta.service_days}</strong></span>
+                                      )}
                                     </div>
-                              )}
+                                  );
+                                }
+                                // Instante seleccionado (control del mapa) en minutos desde medianoche.
+                                const [sh, sm] = otpTime.split(':').map(Number);
+                                const selMin = (sh || 0) * 60 + (sm || 0);
+                                const depTotal = (t: string) => {
+                                  const [h, m] = t.split(':').map(Number);
+                                  return (h || 0) * 60 + (m || 0);
+                                };
+                                return (
+                                  <div className="gtfs-schedule">
+                                    <div className="gtfs-schedule-title">Salidas</div>
+                                    {transitScheduleQuery.data.directions.map((dir, didx) => {
+                                      const hourRows = groupByHour(dir.departures);
+                                      // Próxima salida = menor total >= instante seleccionado.
+                                      const futureTotals = dir.departures.map(depTotal).filter((t) => t >= selMin);
+                                      const nextTotal = futureTotals.length ? Math.min(...futureTotals) : null;
+                                      return (
+                                        <div key={didx} className="gtfs-schedule-section">
+                                          {transitScheduleQuery.data!.directions.length > 1 && (
+                                            <div className="gtfs-schedule-dir">{dir.headsign || `Dirección ${didx + 1}`}</div>
+                                          )}
+                                          <div className="gtfs-schedule-meta">{dir.trip_count} viajes · {stripSeconds(dir.first_departure)} – {stripSeconds(dir.last_departure)}</div>
+                                          {nextTotal === null && (
+                                            <div className="gtfs-schedule-nonext">No quedan salidas para la hora seleccionada</div>
+                                          )}
+                                          <table className="gtfs-schedule-table">
+                                            <tbody>
+                                              {hourRows.map(([hour, mins]) => (
+                                                <tr key={hour}>
+                                                  <td className="gtfs-hour">{hour}</td>
+                                                  <td className="gtfs-mins">{mins.map((m, i) => {
+                                                    const total = parseInt(hour, 10) * 60 + parseInt(m, 10);
+                                                    const cls = total < selMin ? 'gtfs-min--past'
+                                                      : total === nextTotal ? 'gtfs-min--next'
+                                                      : 'gtfs-min--future';
+                                                    return <span key={i} className={cls}>{m}</span>;
+                                                  })}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -1233,6 +1553,19 @@ function App() {
               {/* ════ PREDICT ════ */}
               {activePanel === 'predict' && (
                 <>
+                  {/* Origen / destino (informativo): el par O-D alimenta a OSRM y OTP */}
+                  <div className="ia-od">
+                    <div className="ia-od__row">
+                      <span className="od-icon od-icon--origin"><Play size={13} fill="currentColor" strokeWidth={0} /></span>
+                      <span className="ia-od__coords">{originText}</span>
+                    </div>
+                    <div className="ia-od__row">
+                      <span className="od-icon od-icon--dest"><Square size={12} fill="currentColor" strokeWidth={0} /></span>
+                      <span className="ia-od__coords">{destText}</span>
+                    </div>
+                    <p className="ia-od__hint">Origen y destino del viaje. Se editan en el panel Rutas o con clic derecho en el mapa.</p>
+                  </div>
+
                   {/* Perfiles rápidos */}
                   <div className="preset-grid">
                     {PROFILE_PRESETS.map((preset) => (
@@ -1261,21 +1594,18 @@ function App() {
                   {/* Formulario de parámetros */}
                   <div className="form-grid">
                     <span className="form-section-label">Viaje</span>
+                    <div className={`field-block field-block--full trip-when-note${changedFields.has('day_of_week') || changedFields.has('start_time_linear') ? ' field-block--changed' : ''}`}>
+                      <span className="field-label">Día y hora del viaje</span>
+                      <span className="trip-when-value">
+                        {DAY_OPTIONS.find((d) => d.value === deriveDayOfWeek(scheduleDate))?.label ?? '—'} · {otpTime}
+                      </span>
+                      <span className="trip-when-hint">Se ajusta en el control de fecha/hora del mapa.</span>
+                    </div>
                     <label className={`field-block field-block--full${changedFields.has('purpose') ? ' field-block--changed' : ''}`}>
                       <span className="field-label">Motivo</span>
                       <select value={lpmcProfile.purpose} onChange={(e) => setLpmcProfile((p) => ({ ...p, purpose: e.target.value as LpmcPurpose }))}>
                         {PURPOSE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
-                    </label>
-                    <label className={`field-block${changedFields.has('day_of_week') ? ' field-block--changed' : ''}`}>
-                      <span className="field-label">Día</span>
-                      <select value={lpmcProfile.day_of_week} onChange={(e) => setLpmcProfile((p) => ({ ...p, day_of_week: Number(e.target.value) }))}>
-                        {DAY_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                      </select>
-                    </label>
-                    <label className={`field-block${changedFields.has('start_time_linear') ? ' field-block--changed' : ''}`}>
-                      <span className="field-label">Hora de salida</span>
-                      <input type="time" step={300} value={linearHourToTimeString(lpmcProfile.start_time_linear)} onChange={(e) => setLpmcProfile((p) => ({ ...p, start_time_linear: timeStringToLinearHour(e.target.value) }))} />
                     </label>
 
                     <span className="form-section-label">Persona</span>
@@ -1379,6 +1709,7 @@ function App() {
                           onClick={() => lpmcCompareMutation.mutate(transitItineraryIndex)}
                           disabled={lpmcCompareMutation.isPending}
                         >
+                          <BarChart3 size={14} strokeWidth={1.9} />
                           {lpmcCompareMutation.isPending ? 'Comparando…' : 'Comparar modelos'}
                         </button>
                         <button
@@ -1389,7 +1720,8 @@ function App() {
                             if (!lpmcDebugMutation.data) lpmcDebugMutation.mutate(transitItineraryIndex);
                           }}
                         >
-                          Ver variables
+                          <Table2 size={14} strokeWidth={1.9} />
+                          Ver variables…
                         </button>
                       </div>
                     </>
@@ -1546,7 +1878,9 @@ function App() {
         <div className="debug-modal-overlay" onClick={() => setShowDebugModal(false)}>
           <div className="debug-modal" onClick={(e) => e.stopPropagation()}>
             <div className="debug-modal-header">
-              <span style={{ fontWeight: 700, fontSize: '1rem', color: '#202124' }}>Variables del modelo</span>
+              <span style={{ fontWeight: 700, fontSize: '1rem', color: '#202124', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <Table2 size={17} strokeWidth={1.9} /> Variables del modelo
+              </span>
               <button className="debug-modal-close" onClick={() => setShowDebugModal(false)}>✕</button>
             </div>
 

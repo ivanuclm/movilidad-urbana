@@ -1,6 +1,6 @@
 # backend/app/api/routes_otp.py
 
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from typing import List, Optional
 
@@ -28,6 +28,18 @@ class OtpRouteRequest(BaseModel):
     destination: Point
     # índice de itinerario opcional (para paginar desde el frontend)
     itinerary_index: Optional[int] = None
+    # fecha (YYYY-MM-DD) y hora (HH:MM) de la consulta; si no vienen, se usan los
+    # valores por defecto dentro de la ventana del feed (ver _build_otp_params)
+    date: Optional[str] = None
+    time: Optional[str] = None
+
+
+class TransitStop(BaseModel):
+    name: str | None = None
+    lat: float
+    lon: float
+    stop_id: str | None = None
+    time: str | None = None         # "HH:MM" hora de paso por la parada
 
 
 class TransitSegment(BaseModel):
@@ -43,6 +55,9 @@ class TransitSegment(BaseModel):
     to_stop_name: str | None = None
     departure: str | None = None    # "HH:MM"
     arrival: str | None = None      # "HH:MM"
+    # paradas ordenadas del leg (origen + intermedias + destino); solo en legs
+    # de transporte público
+    stops: List[TransitStop] = []
 
 
 class TransitResult(BaseModel):
@@ -52,6 +67,8 @@ class TransitResult(BaseModel):
     segments: List[TransitSegment] # tramos por modo
     itinerary_index: int
     total_itineraries: int
+    start_time: str | None = None  # hora de salida del viaje completo "HH:MM"
+    end_time: str | None = None    # hora de llegada del viaje completo "HH:MM"
 
 
 class TransitRouteResponse(BaseModel):
@@ -59,29 +76,38 @@ class TransitRouteResponse(BaseModel):
     destination: Point
     result: TransitResult
 
-def _ms_to_hhmm(ms: int | float | None) -> str | None:
+def _ms_to_hhmm(ms: int | float | None, offset_ms: int | float | None = 0) -> str | None:
+    """
+    Convierte un instante epoch (ms, UTC) en "HH:MM" de hora local. OTP devuelve
+    los tiempos en epoch UTC y un `agencyTimeZoneOffset` (ms) por leg; sumando ese
+    offset y formateando en UTC se obtiene la hora local de Toledo (Europe/Madrid),
+    con el horario de verano ya resuelto por OTP según la fecha.
+    """
     if not ms:
         return None
     try:
-        dt = datetime.fromtimestamp(ms / 1000.0)
+        dt = datetime.fromtimestamp((ms + (offset_ms or 0)) / 1000.0, tz=timezone.utc)
         return dt.strftime("%H:%M")
     except Exception:
         return None
 
 def _build_otp_params(req: OtpRouteRequest) -> dict:
-    now = datetime.now()
+    # La fecha/hora llega desde el frontend (panel Ajustes). Si no viene, se usa
+    # un default dentro de la ventana del feed (GTFS_Urbano_Toledo_2026 cubre
+    # 22 feb – 22 may 2026). Fuera de ese rango OTP devolvería solo rutas a pie.
     return {
         "fromPlace": f"{req.origin.lat},{req.origin.lon}",
         "toPlace": f"{req.destination.lat},{req.destination.lon}",
         "mode": "TRANSIT,WALK",
-        # "date": now.strftime("%Y-%m-%d"),
-        # "time": now.strftime("%H:%M"),
-        "date": "2025-12-01",  # fecha fija para evitar rutas no disponibles en días festivos o fines de semana
-        "time": "12:00",  # hora fija para evitar rutas nocturnas sin transporte público
+        "date": req.date or "2026-05-21",
+        "time": req.time or "12:00",
         "numItineraries": 5,
         # intentamos favorecer el bus frente a ir completamente a pie
         "maxWalkDistance": 2000,      # en metros
         "walkReluctance": 3.0,        # >1 penaliza caminar
+        # pedimos las paradas intermedias de cada leg de transporte para poder
+        # dibujar el diagrama de paradas del itinerario en el frontend
+        "showIntermediateStops": True,
         "locale": "es",
     }
 
@@ -116,6 +142,28 @@ def _decode_leg_geometry(leg: dict) -> list[Point]:
     return [Point(lat=lat, lon=lon) for (lat, lon) in coords]
 
 
+def _leg_stop(s: dict, prefer: str, offset_ms: int | float | None = 0) -> TransitStop | None:
+    """
+    Convierte una parada de OTP (from / to / intermediateStops) en TransitStop.
+    `prefer` indica qué hora usar primero: "departure" para la parada de subida
+    y las intermedias, "arrival" para la parada de bajada. `offset_ms` es el
+    `agencyTimeZoneOffset` del leg, para mostrar la hora en local.
+    """
+    if not s:
+        return None
+    lat = s.get("lat")
+    lon = s.get("lon")
+    if lat is None or lon is None:
+        return None
+    return TransitStop(
+        name=s.get("name"),
+        lat=float(lat),
+        lon=float(lon),
+        stop_id=s.get("stopId"),
+        time=_ms_to_hhmm(s.get(prefer) or s.get("arrival") or s.get("departure"), offset_ms),
+    )
+
+
 def _build_segments(itinerary: dict) -> List[TransitSegment]:
     segments: List[TransitSegment] = []
 
@@ -137,6 +185,21 @@ def _build_segments(itinerary: dict) -> List[TransitSegment]:
         if leg.get("transitLeg"):
             from_place = leg.get("from") or {}
             to_place = leg.get("to") or {}
+            intermediate = leg.get("intermediateStops") or []
+            offset_ms = leg.get("agencyTimeZoneOffset") or 0
+
+            # Paradas ordenadas: subida + intermedias + bajada
+            stops: List[TransitStop] = []
+            first = _leg_stop(from_place, "departure", offset_ms)
+            if first is not None:
+                stops.append(first)
+            for s in intermediate:
+                ts = _leg_stop(s, "departure", offset_ms)
+                if ts is not None:
+                    stops.append(ts)
+            last = _leg_stop(to_place, "arrival", offset_ms)
+            if last is not None:
+                stops.append(last)
 
             seg_kwargs.update(
                 route_id=leg.get("routeId") or leg.get("route"),
@@ -145,8 +208,9 @@ def _build_segments(itinerary: dict) -> List[TransitSegment]:
                 agency_name=leg.get("agencyName"),
                 from_stop_name=from_place.get("name"),
                 to_stop_name=to_place.get("name"),
-                departure=_ms_to_hhmm(leg.get("startTime")),
-                arrival=_ms_to_hhmm(leg.get("endTime")),
+                departure=_ms_to_hhmm(leg.get("startTime"), offset_ms),
+                arrival=_ms_to_hhmm(leg.get("endTime"), offset_ms),
+                stops=stops,
             )
 
         segments.append(TransitSegment(**seg_kwargs))
@@ -204,6 +268,16 @@ async def get_otp_route(req: OtpRouteRequest) -> TransitRouteResponse:
     for seg in segments:
         full_geometry.extend(seg.geometry)
 
+    # Horas de salida/llegada del viaje completo, en hora local. Se toma el
+    # agencyTimeZoneOffset del primer leg de transporte (todos comparten agencia).
+    tz_offset = 0
+    for leg in chosen.get("legs", []):
+        if leg.get("transitLeg") and leg.get("agencyTimeZoneOffset") is not None:
+            tz_offset = leg["agencyTimeZoneOffset"]
+            break
+    start_time = _ms_to_hhmm(chosen.get("startTime"), tz_offset)
+    end_time = _ms_to_hhmm(chosen.get("endTime"), tz_offset)
+
     return TransitRouteResponse(
         origin=req.origin,
         destination=req.destination,
@@ -214,5 +288,7 @@ async def get_otp_route(req: OtpRouteRequest) -> TransitRouteResponse:
             segments=segments,
             itinerary_index=idx,
             total_itineraries=len(itineraries),
+            start_time=start_time,
+            end_time=end_time,
         ),
     )

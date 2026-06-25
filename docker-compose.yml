@@ -117,6 +117,25 @@ services:
       osrm-setup:
         condition: service_completed_successfully
 
+  # ── One-time init: build OTP graph from the GTFS feed if missing ─────────────
+  # Idempotente: si otp-toledo/graph.obj ya existe (viene en el repo vía LFS),
+  # se salta. Si falta, lo construye con --build --save a partir del feed GTFS
+  # (GTFS_Urbano_Toledo_2026.zip) y clm.osm.pbf presentes en otp-toledo/.
+  otp-build:
+    image: opentripplanner/opentripplanner:2.5.0
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /var/opentripplanner/graph.obj ]; then
+          echo "=== OTP graph already present, skipping build ===";
+        else
+          echo "=== Building OTP graph (~2 min) ===";
+          JAVA_TOOL_OPTIONS=-Xmx4g /docker-entrypoint.sh --build --save;
+        fi
+    volumes:
+      - ./otp-toledo:/var/opentripplanner
+    restart: "no"
+
   # ── OpenTripPlanner (public transport routing) ────────────────────────────────
   otp:
     image: opentripplanner/opentripplanner:2.5.0
@@ -125,3 +144,6 @@ services:
       - ./otp-toledo:/var/opentripplanner
     ports:
       - "8080:8080"
+    depends_on:
+      otp-build:
+        condition: service_completed_successfully

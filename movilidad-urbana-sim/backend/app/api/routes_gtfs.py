@@ -45,6 +45,7 @@ class GtfsRoute(BaseModel):
     agency_id: Optional[str] = None
     color: Optional[str] = None
     text_color: Optional[str] = None
+    service_days: Optional[str] = None
 
 
 class RouteStop(GtfsStop):
@@ -145,6 +146,7 @@ def get_routes():
             agency_id=r.get("agency_id"),
             color=r.get("color"),
             text_color=r.get("text_color"),
+            service_days=r.get("service_days"),
         )
         for r in routes_raw
     ]
