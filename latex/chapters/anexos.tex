@@ -1,20 +1,159 @@
-﻿\chapter{Anexos}
+\chapter{Anexos}
 
+% =======================================================
 \section{Manual de despliegue y ejecución}
+\label{anx:despliegue}
+% =======================================================
+
+Este anexo recoge el procedimiento para desplegar el simulador en un entorno local, tanto de forma automática (recomendada) como mediante los comandos manuales equivalentes que generan los artefactos de enrutado.
+
 \subsection{Requisitos del entorno}
-\subsubsection{Versiones recomendadas}
 
-\subsection{Arranque de servicios}
-\subsubsection{OSRM, OTP, backend y frontend}
+El despliegue solo necesita \textbf{Docker} y \textbf{Docker Compose} (incluidos en Docker Desktop) y \textbf{Git} con la extensión \textbf{Git LFS} instalada. Git LFS es imprescindible: los artefactos pesados (grafos OSRM, grafo de OTP, feed GTFS y modelos entrenados) se almacenan mediante esta extensión, de modo que un clon sin LFS descargaría solo punteros de texto en su lugar. El primer arranque descarga las imágenes oficiales de OSRM, OpenTripPlanner, Python y Node, por lo que requiere conexión a internet; las ejecuciones posteriores funcionan sin red.
 
-\section{Endpoints y contratos API}
-\subsection{Contratos del backend}
-\subsubsection{Ejemplos de petición y respuesta}
+\begin{lstlisting}[language=bash]
+# Clonado del repositorio con los artefactos de Git LFS
+git lfs install
+git clone https://github.com/ivanuclm/movilidad-urbana.git
+cd movilidad-urbana
+\end{lstlisting}
 
-\section{Tablas de hiperparámetros y resultados completos}
-\subsection{Configuraciones experimentales}
-\subsubsection{Resultados detallados por experimento}
+\subsection{Despliegue automático en un comando}
 
+Todo el sistema se levanta con una sola orden ejecutada en la raíz del repositorio:
+
+\begin{lstlisting}[language=bash]
+docker compose up --build
+\end{lstlisting}
+
+La orquestación define, además de los servicios de explotación, varios servicios de inicialización idempotentes que se ejecutan una sola vez antes de levantar el sistema y que se omiten si su resultado ya está presente:
+
+\begin{itemize}
+  \item \texttt{gtfs-init}: descomprime el feed GTFS (\texttt{GTFS\_Urbano\_Toledo\_2026.zip}) en el directorio de datos del backend.
+  \item \texttt{osrm-setup}: preprocesa los tres grafos viarios (perfiles de conducción, bicicleta y a pie) si no están ya generados.
+  \item \texttt{otp-build}: construye el grafo multimodal de OpenTripPlanner (\texttt{graph.obj}) si no existe.
+\end{itemize}
+
+Como los artefactos vienen versionados con Git LFS, en un clon íntegro estos servicios detectan que el trabajo ya está hecho y terminan de inmediato; solo reconstruyen lo que falte (por ejemplo, tras actualizar el feed o en un clon sin LFS). Una vez arrancado, el simulador queda accesible en \url{http://127.0.0.1:5173}, la documentación interactiva del backend en \url{http://127.0.0.1:8000/docs} y la comprobación de estado en \url{http://127.0.0.1:8000/health}.
+
+\subsection{Generación manual de los artefactos de enrutado}
+
+El preprocesado de OSRM se ejecuta con la imagen oficial \texttt{osrm/osrm-backend}, que ya incluye los perfiles Lua. Las tres etapas (extracción, particionado y personalización) se repiten para cada perfil sobre el extracto \texttt{clm.osm.pbf}, produciendo un directorio de artefactos independiente por modo:
+
+\begin{lstlisting}[language=bash]
+# Perfil de conduccion (analogo para bicycle.lua y foot.lua)
+docker run --rm -v "${PWD}/osrm-clm/car:/data" osrm/osrm-backend \
+  osrm-extract   -p /opt/car.lua /data/clm.osm.pbf
+docker run --rm -v "${PWD}/osrm-clm/car:/data" osrm/osrm-backend \
+  osrm-partition /data/clm.osrm
+docker run --rm -v "${PWD}/osrm-clm/car:/data" osrm/osrm-backend \
+  osrm-customize /data/clm.osrm
+\end{lstlisting}
+
+El grafo de OpenTripPlanner se construye con un único comando sobre el directorio \texttt{otp-toledo/}, que debe contener el extracto OSM y el feed GTFS:
+
+\begin{lstlisting}[language=bash]
+docker run --rm -v "${PWD}/otp-toledo:/var/opentripplanner" \
+  opentripplanner/opentripplanner:2.5.0 --build --save
+\end{lstlisting}
+
+\subsection{Verificación}
+
+Cada motor OSRM se publica en un puerto distinto del anfitrión (5001, 5002 y 5003 para conducción, bicicleta y a pie, respectivamente; se evita el 5000 por su conflicto con un servicio del sistema en macOS). Una consulta de prueba devuelve \texttt{"code": "Ok"} y la geometría de la ruta:
+
+\begin{lstlisting}[language=bash]
+curl "http://localhost:5001/route/v1/driving/-4.0356,39.8750;-4.0023,39.8602?overview=full"
+\end{lstlisting}
+
+OpenTripPlanner queda accesible en el puerto 8080 y el backend en el 8000. La documentación OpenAPI de \texttt{/docs} permite ejercitar todos los endpoints desde el navegador.
+
+% =======================================================
+\section{Endpoints y contratos de la API}
+\label{anx:endpoints}
+% =======================================================
+
+La Tabla~\ref{tab:endpoints_api} del capítulo~\ref{ch:arquitectura} resume los endpoints de la API. Este anexo recoge ejemplos de petición y respuesta de los tres principales. Todas las peticiones \texttt{POST} usan cuerpo JSON y todas las coordenadas son pares \texttt{(lat, lon)} en grados decimales.
+
+\subsection{Rutas viarias multiperfil (\texttt{POST /api/osrm/routes})}
+
+\begin{lstlisting}
+// Peticion
+{ "origin": {"lat": 39.8785, "lon": -4.0370},
+  "destination": {"lat": 39.8601, "lon": -4.0023},
+  "profiles": ["driving", "cycling", "foot"] }
+
+// Respuesta (resumida)
+{ "origin": {...}, "destination": {...},
+  "results": [
+    {"profile": "driving", "distance_m": 4120.5, "duration_s": 612.0,
+     "geometry": [{"lat": 39.8785, "lon": -4.0370}, ...]},
+    {"profile": "cycling", "distance_m": 3980.1, "duration_s": 1015.0, "geometry": [...]},
+    {"profile": "foot",    "distance_m": 3760.7, "duration_s": 2890.0, "geometry": [...]}
+  ] }
+\end{lstlisting}
+
+\subsection{Itinerario de transporte público (\texttt{POST /api/otp/routes})}
+
+\begin{lstlisting}
+// Peticion (date y time son opcionales; por defecto 2026-05-21 12:00)
+{ "origin": {"lat": 39.8785, "lon": -4.0370},
+  "destination": {"lat": 39.8601, "lon": -4.0023},
+  "itinerary_index": 0, "date": "2026-05-21", "time": "08:00" }
+
+// Respuesta (resumida)
+{ "result": {
+    "distance_m": 5230.0, "duration_s": 1500.0,
+    "start_time": "08:22", "end_time": "08:47",
+    "itinerary_index": 0, "total_itineraries": 5,
+    "segments": [
+      {"mode": "WALK", "distance_m": 400.0, "duration_s": 360.0, "geometry": [...]},
+      {"mode": "BUS", "route_short_name": "L91", "from_stop_name": "...",
+       "to_stop_name": "...", "departure": "08:28", "arrival": "08:33",
+       "stops": [{"name": "...", "lat": 39.87, "lon": -4.03, "time": "08:28"}, ...],
+       "geometry": [...]},
+      {"mode": "WALK", "distance_m": 220.0, "duration_s": 180.0, "geometry": [...]}
+    ] } }
+\end{lstlisting}
+
+\subsection{Inferencia de elección modal (\texttt{POST /api/lpmc/predict})}
+
+\begin{lstlisting}
+// Peticion (model_variant opcional; por defecto, la variable LPMC_MODEL_VARIANT)
+{ "origin": {"lat": 39.8785, "lon": -4.0370},
+  "destination": {"lat": 39.8601, "lon": -4.0023},
+  "itinerary_index": 0, "model_variant": "xgb",
+  "user_profile": {
+    "purpose": "HBW", "fueltype": "Petrol", "day_of_week": 2,
+    "start_time_linear": 8.25, "age": 36, "female": 0,
+    "driving_license": 1, "car_ownership": 1,
+    "cost_transit": 1.5, "cost_driving_total": 3.5 } }
+
+// Respuesta (resumida)
+{ "predicted_mode": "drive", "confidence": 0.58,
+  "probabilities": {"walk": 0.07, "cycle": 0.03, "pt": 0.32, "drive": 0.58},
+  "route_features": {"distance": 4120.5, "dur_driving": 0.17, "dur_pt_bus": 0.21, ...},
+  "model_info": {"model_path": "...", "pt_available": true, "short_trip": false} }
+\end{lstlisting}
+
+% =======================================================
+\section{Configuración experimental y reproducibilidad}
+\label{anx:experimentos}
+% =======================================================
+
+Los hiperparámetros de los tres modelos se detallan en la sección~\ref{subsec:impl_lpmc_hiperparametros} (Tabla~\ref{tab:xgb_params} para XGBoost) y los resultados de validación cruzada y test en la sección~\ref{subsec:impl_lpmc_entrenamiento} (Tablas~\ref{tab:lpmc_train_results} y~\ref{tab:lpmc_test_results}). Este anexo reúne las condiciones que garantizan la reproducibilidad de esos experimentos:
+
+\begin{itemize}
+  \item \textbf{Dataset}: London Passenger Mode Choice (LPMC), con división temporal no aleatoria (oleadas 1 y 2 para entrenamiento, oleada 3 para test).
+  \item \textbf{Validación}: validación cruzada de 5~\textit{folds} agrupada por hogar (\texttt{GroupKFold} con \texttt{household\_id} como grupo), de modo que ningún hogar aparece simultáneamente en entrenamiento y validación.
+  \item \textbf{Preprocesado}: \texttt{StandardScaler} ajustado solo sobre el subconjunto de entrenamiento de cada fold; codificación \textit{one-hot} de las variables categóricas \texttt{purpose} y \texttt{fueltype}; exclusión de \texttt{household\_id} de las características.
+  \item \textbf{Semilla aleatoria}: 481516, fijada en NumPy y PyTorch.
+  \item \textbf{Bibliotecas}: scikit-learn (Random Forest y escalado), XGBoost (\textit{gradient boosting}) y PyTorch (red neuronal profunda).
+  \item \textbf{Métricas}: exactitud (\textit{accuracy}) y GMPCA (\textit{Geometric Mean Probability of Correct Alternative}).
+\end{itemize}
+
+% =======================================================
 \section{Evidencias de sprints}
-\subsection{Registro de tareas y decisiones}
-\subsubsection{Referencias a commits y artefactos}
+\label{anx:sprints}
+% =======================================================
+
+La planificación y el desarrollo siguieron un proceso Scrum adaptado, descrito en el capítulo~\ref{ch:metodologia}, donde se detallan los sprints con sus objetivos, fechas y resultados. La trazabilidad fina del trabajo (tareas, decisiones técnicas y artefactos) queda registrada en el historial de control de versiones del repositorio público del proyecto (\url{https://github.com/ivanuclm/movilidad-urbana}), cuyos mensajes de \textit{commit} documentan la evolución incremental del sistema sprint a sprint.

@@ -143,7 +143,7 @@ Esta fase supuso un salto cualitativo dentro del proyecto, ya que permitió inte
 
 \textbf{Esfuerzo estimado}: 8--12 horas.
 
-Este sprint se orientó a consolidar la experiencia de usuario y la legibilidad comparada de resultados. Las principales decisiones de diseño adoptadas fueron: codificación visual de rutas por modo (azul sólido para conducción, verde sólido para bicicleta y gris discontinuo para desplazamiento a pie); visualización de segmentos OTP diferenciada entre tramos en vehículo, representados en naranja, y tramos a pie, con la misma trama discontinua que el modo peatonal; cuatro basemaps seleccionables por el usuario (carto-light, OpenStreetMap estándar, OpenTopoMap y satélite Esri); y marcadores SVG personalizados para origen y destino con iconografía diferenciada.
+Este sprint se orientó a consolidar la experiencia de usuario y la legibilidad comparada de resultados. Las principales decisiones de diseño adoptadas fueron: codificación visual de rutas por modo (azul sólido para conducción, verde sólido para bicicleta y gris discontinuo para desplazamiento a pie); visualización de segmentos OTP diferenciada entre tramos en vehículo, representados en naranja, y tramos a pie, con la misma trama discontinua que el modo peatonal; basemaps seleccionables por el usuario; y marcadores SVG personalizados para origen y destino con iconografía diferenciada.
 
 Se consolidó también el uso de TanStack Query para las peticiones al backend, que proporciona caché de respuestas, gestión declarativa de estados de carga y reintento automático en caso de error. Los segmentos de transporte público se restringieron a modo \textit{transit}, evitando solapamientos visuales con las rutas viarias. El resultado fue una interfaz directamente utilizable como herramienta de análisis, no solo como demostración técnica del sistema de enrutado.
 
@@ -185,83 +185,95 @@ Su carácter transversal hace que este sprint deba interpretarse como una activi
 
 El objetivo de esta iteración fue integrar el módulo de inferencia modal dentro del simulador ya construido, conectando el bloque de modelado con la aplicación web y con la lógica general del backend. Con ello se buscaba que el sistema dejara de ser únicamente un comparador de rutas para incorporar también una capa predictiva sobre la elección de modo de viaje.
 
-Esta integración representó la convergencia de las dos grandes líneas del TFM: por un lado, la construcción del simulador de movilidad urbana; por otro, el diseño y validación de modelos de clasificación. A partir de este punto, el proyecto quedó configurado como una aplicación final capaz de combinar cálculo de rutas, visualización cartográfica e inferencia modal en un mismo entorno de trabajo.
+Esta integración representó la convergencia de las dos grandes líneas del TFM: por un lado, la construcción del simulador de movilidad urbana; por otro, el diseño y validación de modelos de clasificación. A partir de este punto, el proyecto quedó configurado como una aplicación capaz de combinar cálculo de rutas, visualización cartográfica e inferencia modal en un mismo entorno de trabajo.
 
-% -------------------------------------------------------
-% SPRINTS ADICIONALES añadir aqui
-% -------------------------------------------------------
+\subsection{Sprint 10: Reestructuración del repositorio y documentación de la arquitectura}
+
+\textbf{Fechas}: del 17 de marzo al 15 de abril de 2026.
+
+\textbf{Esfuerzo estimado}: 14--20 horas.
+
+El proyecto presentaba una deuda técnica acumulada: los distintos componentes, incluyendo backend, frontend, scripts de entrenamiento y configuración Docker, se habían desarrollado de forma incremental y necesitaban unificarse en un repositorio coherente para la entrega final. Este sprint abordó esa consolidación integrando todos los módulos en un monorrepo con estructura clara de directorios y preparando la documentación técnica para la fase de escritura del capítulo de arquitectura.
+
+La tarea documental más relevante fue la redacción del capítulo 4, que formalizó las decisiones de diseño acumuladas durante los sprints anteriores: la tabla de servicios Docker, los cuatro grupos de endpoints de la API, el diagrama del pipeline de inferencia y la descripción de la capa de orquestación. Documentar la arquitectura antes de entrar en el detalle del capítulo 5 permitió detectar algunas inconsistencias menores en los contratos de la API y corregirlas antes de que quedaran fijadas en la memoria.
+
+\subsection{Sprint 11: Entrenamiento de modelos adicionales y comparativa multi-modelo}
+
+\textbf{Fechas}: del 28 de abril al 6 de mayo de 2026.
+
+\textbf{Esfuerzo estimado}: 20--28 horas.
+
+El bloque de inteligencia artificial contaba en ese momento únicamente con el modelo XGBoost entrenado en el sprint 7. Este sprint amplió el repertorio con un segundo modelo de tipo bosque aleatorio (Random Forest) y un tercero de red neuronal profunda implementado en PyTorch mediante un módulo \texttt{TorchModalWrapper}, lo que permitió comparar tres enfoques de aprendizaje automático sobre el mismo dataset LPMC y el mismo conjunto de variables de entrada. En los tres modelos se aplicó validación cruzada con GroupKFold, agrupando por identificador de hogar para evitar que viajes de un mismo hogar aparecieran simultáneamente en los conjuntos de entrenamiento y de test.
+
+Durante esta fase se detectó y corrigió un error en el pipeline de inferencia: las duraciones de ruta devueltas por OSRM y OTP estaban en segundos, mientras que el dataset LPMC las registra en horas. Sin esa conversión, las duraciones llegaban al modelo con un factor de inflación de 3.600, lo que distorsionaba completamente las predicciones. La corrección se aplicó tanto en el módulo de entrenamiento como en el de inferencia. Se añadió también el endpoint \texttt{POST /api/lpmc/compare}, que ejecuta los tres modelos en paralelo y devuelve sus probabilidades de forma comparada, junto con el panel de comparación correspondiente en el frontend.
+
+\subsection{Sprint 12: Redacción del capítulo de implementación y primer rediseño de la interfaz}
+
+\textbf{Fechas}: del 19 de mayo al 10 de junio de 2026.
+
+\textbf{Esfuerzo estimado}: 28--36 horas.
+
+Este sprint combinó dos líneas de trabajo en paralelo. Por un lado, la redacción de las seis secciones del capítulo 5, que recorren la implementación de OSRM, OTP, el módulo GTFS, el backend FastAPI, el frontend React y el bloque de modelado. La escritura en detalle de cada sección exigió revisar el estado real del código y, en varios casos, corregir implementaciones que habían quedado incompletas o cuya documentación no reflejaba su funcionamiento real.
+
+Por otro lado, la interfaz recibió su primer rediseño estructural: se sustituyó el diseño anterior por un sidebar-rail fijo de 64 píxeles con cuatro paneles funcionales (Rutas, Red de transporte, Predicción IA y Capas) que flotan sobre el mapa sin desplazarlo. Se incorporó un menú contextual al hacer clic derecho sobre el mapa para establecer el origen o el destino del viaje. Se activó además el Plan A de manejo de itinerarios sin transporte público real: cuando OTP no devuelve ningún tramo de bus, las variables de transporte público se sustituyen por valores de penalización extremos antes de la inferencia, de forma que el modelo descarte esa alternativa por sus propias reglas sin necesidad de intervención posterior.
+
+\subsection{Sprint 13: Consolidación de la interfaz y preparación del repositorio para entrega}
+
+\textbf{Fechas}: del 11 al 19 de junio de 2026.
+
+\textbf{Esfuerzo estimado}: 22--30 horas.
+
+Este sprint agrupó un conjunto de mejoras de interfaz y de infraestructura orientadas a dejar el sistema en el estado que se presenta en la defensa. En la parte visual, el panel de la red GTFS fue rediseñado por completo: las líneas se agrupan por nombre corto en un acordeón desplegable con un diagrama de paradas al estilo de un cartel de línea, y se garantizan colores únicos asignando una paleta de 26 tonos a las 25 líneas del feed de Toledo por índice alfabético. Se añadió un panel de Ajustes con un selector de modelo activo que carga las opciones dinámicamente desde la API sin necesidad de reiniciar el contenedor, resolviendo una dependencia que hasta entonces requería edición manual de la variable de entorno. Se sustituyeron también los controles de zoom nativos de Leaflet por componentes React con lógica de limpieza de rutas, se instaló la librería Lucide React para la iconografía de la interfaz y se añadió un panel de Inicio con la descripción del proyecto y los créditos.
+
+En cuanto a la infraestructura, el repositorio se reorganizó para la entrega pública: se configuró Git LFS para los artefactos pesados (grafos OSRM, grafo OTP, fichero GTFS ZIP y modelos ML), se añadieron servicios de inicialización idempotentes en Docker Compose para que el sistema arranque correctamente en cualquier máquina sin pasos manuales, y se redactaron los ficheros README en inglés y español. El repositorio fue renombrado a \texttt{movilidad-urbana} en GitHub.
+
+\subsection{Sprint 14: Pulido final de la aplicación y revisión integral de la memoria}
+
+\textbf{Fechas}: del 24 al 25 de junio de 2026.
+
+\textbf{Esfuerzo estimado}: 20--26 horas.
+
+Los dos últimos días de desarrollo activo sirvieron para cerrar los flecos técnicos pendientes y dejar la memoria en estado de depósito. En la aplicación se resolvieron varios problemas acumulados: el prefijo del feedId de OTP impedía identificar la línea de bus en el catálogo GTFS, por lo que las insignias de color del panel Rutas mostraban un tono incorrecto; la fecha y hora del viaje estaban repartidas en tres controles distintos de la interfaz que no siempre estaban sincronizados; y el grafo de OTP había sido construido con el feed de diciembre de 2025, mientras que el panel de la red usaba el feed de 2026, lo que generaba una inconsistencia estructural: consultar una fecha de 2026 en el planificador devolvía únicamente itinerarios a pie mientras el panel de red mostraba horarios correctamente. Se reconstruyó el grafo con el feed de 2026 (22 de febrero a 22 de mayo), se unificó el control de fecha y hora en un único elemento permanente sobre el mapa y se corrigió un error de zona horaria en los horarios mostrados. Se añadieron también la edición directa de coordenadas de origen y destino, la copia de coordenadas al portapapeles y el recálculo automático de rutas al modificar un extremo del viaje.
+
+En la memoria se revisaron exhaustivamente los capítulos 4 y 5 contrastándolos con el estado final de la aplicación, se crearon los cuatro anexos (manual de despliegue, contratos de la API, configuración experimental y reproducibilidad, y evidencias de sprints) y se corrigieron cuatro referencias al anexo de despliegue que estaban rotas por la ausencia de su etiqueta \texttt{\textbackslash label}. Los puertos de los servicios OSRM en el host se cambiaron de 5000/5001/5002 a 5001/5002/5003 para evitar el conflicto con el servicio AirPlay/Control Center en macOS.
+
+
+\section{Retrospectiva del ciclo de desarrollo}
+
+\subsection{Aprendizajes por iteración}
+
+El desarrollo del proyecto dejó cinco aprendizajes técnicos que merecen recogerse explícitamente, tanto por su impacto real sobre el trabajo como por su aplicabilidad en proyectos similares:
+
+\begin{itemize}
+  \item \textbf{Validar los servicios externos en una iteración temprana y aislada evita retrabajo costoso.} El descubrimiento en el sprint 1 de que el servidor de demostración de OSRM solo ofrece el perfil de conducción motivó la transición inmediata a una infraestructura local, que fue la base de todo el desarrollo posterior. Posponer esa validación al sprint 5 o posterior habría obligado a replantear la arquitectura cuando ya existía código construido sobre ella.
+
+  \item \textbf{La coherencia entre las unidades de los datos de entrada y las del dataset de entrenamiento es un invariante crítico en cualquier pipeline de inferencia.} El factor de conversión de segundos a horas entre las salidas de OSRM/OTP y el dataset LPMC pasó desapercibido durante varios sprints y produjo predicciones completamente incorrectas hasta su detección y corrección en el sprint 11. Documentar las unidades esperadas por el modelo junto a la definición de cada variable habría evitado el error desde el principio.
+
+  \item \textbf{Cuando dos componentes dependen del mismo conjunto de datos con mecanismos de carga distintos, es necesario mantener un único punto de referencia temporal.} La coexistencia del feed GTFS de diciembre de 2025 en el grafo de OTP con el feed de 2026 en el módulo de consulta estática creó una incoherencia que solo se detectó al intentar visualizar horarios para las mismas fechas en ambos componentes. La lección es verificar la consistencia temporal de los datos entre servicios antes de integrarlos en la interfaz de usuario.
+
+  \item \textbf{Las técnicas de evaluación de modelos de clasificación pueden introducir data leakage si no se tiene en cuenta la estructura jerárquica de los datos.} En el dataset LPMC varios miembros de un mismo hogar realizaron viajes distintos; sin el uso de GroupKFold agrupado por identificador de hogar, viajes del mismo hogar podían aparecer simultáneamente en los conjuntos de entrenamiento y de test, inflando artificialmente las métricas de evaluación. El split temporal por survey year era necesario pero insuficiente por sí solo.
+
+  \item \textbf{Registrar las decisiones de diseño en la memoria en paralelo al desarrollo acelera la redacción final y reduce la pérdida de contexto técnico.} Las secciones del capítulo 5 que más tiempo requirieron fueron precisamente aquellas para las que no se había dejado trazabilidad escrita durante los sprints correspondientes. Las secciones redactadas inmediatamente después de completar su implementación resultaron más precisas y requirieron menos revisión.
+\end{itemize}
+
+\subsection{Acciones de mejora aplicadas}
+
+En respuesta a los aprendizajes anteriores, se tomaron las siguientes acciones correctoras:
+
+\begin{itemize}
+  \item Se migró a OSRM local en el sprint 2, inmediatamente después de identificar las limitaciones del servidor público, sin esperar a que el problema bloqueara fases más avanzadas del desarrollo.
+  \item Se añadió la conversión explícita de segundos a horas en el módulo de inferencia, se documentó el invariante en el código y se verificó de forma explícita que los scripts de entrenamiento y el servicio de predicción aplicaran el mismo factor de escala.
+  \item El grafo de OTP se reconstruyó con el feed de 2026 y se eliminó el feed antiguo del repositorio, garantizando que ambos componentes operaran sobre la misma ventana temporal.
+  \item Se incorporó GroupKFold con el identificador de hogar como criterio de agrupación en el entrenamiento de los tres modelos, y se mantuvo el split temporal por survey year como criterio de partición del conjunto de evaluación.
+  \item Se estableció la práctica de actualizar la memoria al cierre de cada sprint con las decisiones técnicas más relevantes, reduciendo la carga documental en la fase final y mejorando la precisión de las secciones de implementación.
+\end{itemize}
+
 
 \section{Cierre del ciclo de desarrollo}
 \label{sec:scrum_cierre}
 
-La secuencia de sprints descrita en este capítulo llevó el proyecto desde una primera validación de tecnologías de enrutado hasta un simulador funcional extremo a extremo, con integración de rutas viarias, transporte público multimodal y predicción de elección modal mediante aprendizaje automático. Cada iteración aportó un incremento concreto sobre la base anterior: el prototipo inicial de rutas se amplió con un servicio local multiperfil, se integró la red de transporte público de Toledo, se incorporó la planificación multimodal con OTP, se consolidó la interfaz y, finalmente, se conectó el módulo de inferencia con el resto del sistema.
+La secuencia de catorce sprints descrita en este capítulo llevó el proyecto desde una primera validación de tecnologías de enrutado hasta un simulador funcional completo, con integración de rutas viarias, transporte público multimodal, red GTFS estática, inferencia de elección modal mediante tres modelos de aprendizaje automático y una interfaz de usuario lista para su presentación.
+
+El desarrollo puede dividirse en tres fases diferenciadas. Una primera fase de infraestructura y validación tecnológica (sprints 1 a 5) orientada a demostrar la viabilidad del sistema y establecer la arquitectura de integración de servicios. Una segunda fase de desarrollo del bloque de inteligencia artificial (sprints 6, 7, 9 y 11), centrada en el procesamiento del dataset LPMC, el entrenamiento de tres modelos de clasificación y su integración en la API del sistema. Una tercera fase de consolidación, pulido visual y documentación (sprints 8, 10, 12, 13 y 14), en la que el simulador alcanzó su forma definitiva y la memoria fue redactada y revisada. Las fases primera y segunda se solapan temporalmente en varios meses, reflejo del carácter iterativo del desarrollo y de la necesidad de avanzar en paralelo sobre la infraestructura y el bloque de modelado.
 
 La arquitectura resultante y las decisiones técnicas adoptadas a lo largo de este proceso se describen en el capítulo~\ref{ch:arquitectura}. Los detalles de implementación de cada componente se recogen en el capítulo~\ref{ch:implementacion}.
-
-
-% \section{Sprint reviews y retrospectivas}
-
-% \subsection{Aprendizajes por iteración}
-
-% \begin{itemize}
-%   \item Validar pronto las limitaciones de servicios externos evita retrabajo (caso demoserver OSRM).
-%   \item Mantener infraestructura local mejora reproducibilidad y control experimental.
-%   \item Separar integración funcional y capa de IA reduce complejidad y facilita depuración.
-%   \item Mantener trazabilidad escrita del proyecto es clave para retomar el trabajo con rapidez tras varias semanas de pausa.
-%   \item Exponer endpoints de depuración acelera la validación del pipeline de inferencia en integración.
-% \end{itemize}
-
-% \subsection{Acciones de mejora}
-
-% \begin{itemize}
-%   \item Integrar inferencia en backend sin bloquear el servidor.
-%   \item Sustituir parámetros temporales hardcodeados de OTP por fecha/hora seleccionadas por usuario.
-%   \item Revisar la coherencia entre oferta real de transporte público y espacio de decisión del modelo: en trayectos cortos donde OTP no devuelve tramo BUS (itinerario íntegramente WALK), no debe habilitarse la alternativa \texttt{pt} en inferencia.
-%   \item Añadir trazabilidad explícita entre evidencias (scripts, notebooks, endpoints) y sprints.
-%   \item Estandarizar formato de revisión al cierre de cada iteración.
-% \end{itemize}
-
-% \section{Seguimiento operativo}
-
-% \subsection{Registro en SCRUM\_LOG}
-
-% El seguimiento detallado se mantiene en el documento vivo \texttt{latex/SCRUM\_LOG.md}, donde se registran:
-
-% \begin{itemize}
-%   \item estado de cada sprint,
-%   \item bloqueos,
-%   \item evidencia técnica,
-%   \item decisiones tomadas y próximos pasos.
-% \end{itemize}
-
-% \subsection{Trazabilidad con el repositorio}
-
-% Cada sprint debe poder vincularse con evidencias concretas:
-
-% \begin{itemize}
-%   \item archivos modificados,
-%   \item scripts ejecutables,
-%   \item artefactos de modelo,
-%   \item endpoints funcionales,
-%   \item resultados observables en interfaz.
-% \end{itemize}
-
-% \section{Próximo sprint propuesto}
-
-% \subsection{Objetivo}
-
-% Actualizar OTP y datos de transporte para 2026, eliminando el parche temporal de fecha/hora fija y utilizando fecha/hora de viaje seleccionadas por el usuario.
-
-% \subsection{Alcance y criterio de cierre}
-
-% \begin{itemize}
-%   \item Feed GTFS actualizado (2026) y \texttt{graph.obj} regenerado.
-%   \item Selector de fecha y hora de viaje integrado en frontend.
-%   \item Paso de \texttt{date}/\texttt{time} desde UI hasta \texttt{\_build\_otp\_params} en backend.
-%   \item Comprobación de itinerarios OTP con fecha/hora variable en Toledo.
-%   \item Evidencia registrada en \texttt{SCRUM\_LOG.md} y en la memoria.
-% \end{itemize}
-
-% \subsection{Plan a dos sprints vista}
-
-% La línea de investigación DNN (Keras/TensorFlow en CPU, ajuste de depth/width y dropout) se planifica para dos sprints posteriores al de actualización OTP, una vez estabilizado el flujo de rutas con fecha/hora seleccionables. En paralelo, se propone una tarea de robustez metodológica en inferencia modal: restringir el conjunto de alternativas a modos realmente disponibles en cada consulta. En particular, si el planificador no devuelve transporte público efectivo (sin tramo BUS), la elección debe realizarse solo entre \texttt{walk}, \texttt{cycle} y \texttt{drive}, evitando clasificar como \texttt{pt} desplazamientos que operativamente se resuelven andando.

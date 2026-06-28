@@ -29,13 +29,13 @@ El frontend expone la interfaz cartográfica al usuario y delega en el backend e
 
 La infraestructura del sistema se define íntegramente en un fichero \texttt{docker-compose.yml} en la raíz del repositorio. El despliegue completo se obtiene con un único comando (\texttt{docker compose up -{}-build}), lo que elimina dependencias de entorno en la máquina anfitriona y garantiza reproducibilidad.
 
-% \begin{figure}[htbp]
-%   \centering
-%   % \includegraphics[width=0.92\textwidth]{figures/arch_docker.pdf}
-%   \missingfigure{Diagrama de servicios Docker Compose: frontend :5173, backend :8000, osrm-car :5000, osrm-bike :5001, osrm-foot :5002, otp :8080. Volúmenes montados en OSRM y OTP.}
-%   \caption{Servicios Docker Compose y puertos expuestos.}
-%   \label{fig:arch_docker}
-% \end{figure}
+\begin{figure}[htbp]
+  \centering
+  % \includegraphics[width=0.92\textwidth]{figures/arch_docker.pdf}
+  \missingfigure{Diagrama de servicios Docker Compose: frontend :5173, backend :8000, osrm-car :5001, osrm-bike :5002, osrm-foot :5003, otp :8080, y servicios de inicialización gtfs-init, osrm-setup y otp-build. Volúmenes montados en OSRM y OTP.}
+  \caption{Servicios Docker Compose y puertos expuestos.}
+  \label{fig:arch_docker}
+\end{figure}
 
 La Tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos y su función en el sistema.
 
@@ -49,15 +49,15 @@ La Tabla~\ref{tab:servicios_docker} resume los servicios definidos, sus puertos 
     \hline
     \texttt{frontend}   & 5173 & Interfaz web React servida por Vite. \\
     \texttt{backend}    & 8000 & API FastAPI, orquestación y lógica de negocio. \\
-    \texttt{osrm-car}   & 5000 & Motor OSRM con perfil de vehículo a motor. \\
-    \texttt{osrm-bike}  & 5001 & Motor OSRM con perfil de bicicleta. \\
-    \texttt{osrm-foot}  & 5002 & Motor OSRM con perfil peatonal. \\
+    \texttt{osrm-car}   & 5001 & Motor OSRM con perfil de vehículo a motor. \\
+    \texttt{osrm-bike}  & 5002 & Motor OSRM con perfil de bicicleta. \\
+    \texttt{osrm-foot}  & 5003 & Motor OSRM con perfil peatonal. \\
     \texttt{otp}        & 8080 & OpenTripPlanner 2.x con grafo multimodal de Toledo. \\
     \hline
   \end{tabular}
 \end{table}
 
-Los servicios OSRM montan los grafos viarios preprocesados desde directorios locales mediante volúmenes Docker. OpenTripPlanner carga el grafo multimodal (\texttt{graph.obj}) generado a partir de los datos OSM de Castilla-La Mancha y el feed GTFS urbano de Toledo. Estos artefactos pesados no se versionan en el repositorio Git y deben generarse o descargarse antes del primer despliegue, según se describe en el anexo~\ref{anx:despliegue}.
+Los servicios OSRM montan los grafos viarios preprocesados desde directorios locales mediante volúmenes Docker. OpenTripPlanner carga el grafo multimodal (\texttt{graph.obj}) generado a partir de los datos OSM de Castilla-La Mancha y el feed GTFS urbano de Toledo. Estos artefactos pesados se versionan mediante Git LFS (\textit{Large File Storage}), de modo que un clon del repositorio dispone de ellos sin necesidad de reconstruirlos. Para cubrir el caso de un clon sin LFS o de una actualización de los datos de origen, la orquestación incorpora además varios servicios de inicialización idempotentes que se ejecutan una sola vez antes de levantar el sistema: \texttt{gtfs-init} descomprime el feed GTFS, \texttt{osrm-setup} preprocesa los grafos viarios por perfil si faltan y \texttt{otp-build} construye el grafo de OTP si no está presente. El procedimiento completo, tanto automático como manual, se describe en el anexo~\ref{anx:despliegue}.
 
 La razón por la que OSRM se instancia tres veces en lugar de usar un único servidor multiperfil es que la imagen oficial de OSRM no admite perfiles simultáneos: cada proceso solo puede servir el grafo con el que fue preprocesado. Esta limitación fue el detonante del cambio de la solución inicial basada en el servidor de demostración público, que únicamente ofrecía perfil de conducción, a la infraestructura local multiperfil descrita aquí.
 
@@ -85,6 +85,7 @@ El backend está implementado con FastAPI sobre Python y se organiza en cuatro r
     POST & \texttt{/api/lpmc/predict}                 & Inferencia de elección modal con el modelo activo. \\
     POST & \texttt{/api/lpmc/compare}                 & Inferencia simultánea con XGBoost, RF y DNN. \\
     POST & \texttt{/api/lpmc/debug-features}          & Vector de características antes/después del escalado. \\
+    GET  & \texttt{/api/lpmc/models}                  & Modelos disponibles y variante por defecto. \\
     GET  & \texttt{/health}                           & Comprobación de disponibilidad. \\
     \hline
   \end{tabular}
@@ -129,7 +130,7 @@ Las variables de entrada al modelo proceden de tres fuentes diferenciadas: los t
 
 Las variables continuas que presentaban distribución asimétrica en el conjunto de entrenamiento se normalizan con un escalado parcial aplicado solo a las columnas correspondientes, preservando las variables binarias y de conteo sin transformar. El modelo devuelve un vector de cuatro probabilidades correspondientes a los modos \textit{walk}, \textit{cycle}, \textit{pt} y \textit{drive}; el modo predicho es el de mayor probabilidad.
 
-El modelo activo para \texttt{/predict} se controla mediante la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto). \todo{Refactorizar: el modelo a usar debería ser un parámetro de la petición POST /api/lpmc/predict (ej. \texttt{"model": "xgb"}), con XGBoost como valor por defecto. La variable de entorno es un parche de desarrollo que no debería llegar a producción.} Ninguno de los tres modelos incluye \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; solo se usó durante el entrenamiento como criterio de agrupación en la validación cruzada.
+El modelo utilizado en \texttt{/predict} se elige mediante el parámetro opcional \texttt{model\_variant} de la propia petición; cuando no se indica, se recurre a la variable de entorno \texttt{LPMC\_MODEL\_VARIANT} (\texttt{xgb} por defecto), lo que mantiene la compatibilidad con clientes que no especifiquen el modelo. Ninguno de los tres modelos recibe \texttt{household\_id} como variable de entrada, ya que ese identificador de hogar no está disponible en tiempo de ejecución; su uso durante el entrenamiento se detalla en la sección~\ref{subsec:impl_lpmc_entrenamiento}.
 
 % Decisiones técnicas movidas al capítulo 5 (implementación)
 

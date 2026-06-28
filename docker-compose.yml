@@ -90,7 +90,9 @@ services:
     volumes:
       - ./osrm-clm/car:/data
     ports:
-      - "5000:5000"
+      # Puerto host 5001 (no 5000): el 5000 lo ocupa AirPlay/Control Center en macOS.
+      # El backend habla con OSRM por red interna (osrm-car:5000), ajeno a este mapeo.
+      - "5001:5000"
     depends_on:
       osrm-setup:
         condition: service_completed_successfully
@@ -101,7 +103,7 @@ services:
     volumes:
       - ./osrm-clm/bike:/data
     ports:
-      - "5001:5000"
+      - "5002:5000"
     depends_on:
       osrm-setup:
         condition: service_completed_successfully
@@ -112,7 +114,7 @@ services:
     volumes:
       - ./osrm-clm/foot:/data
     ports:
-      - "5002:5000"
+      - "5003:5000"
     depends_on:
       osrm-setup:
         condition: service_completed_successfully

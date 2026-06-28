@@ -96,9 +96,9 @@ docker compose ps                   # estado de los contenedores
 | Backend API | http://127.0.0.1:8000 |
 | Health check | http://127.0.0.1:8000/health |
 | OpenTripPlanner | http://127.0.0.1:8080 |
-| OSRM coche | http://127.0.0.1:5000 |
-| OSRM bicicleta | http://127.0.0.1:5001 |
-| OSRM a pie | http://127.0.0.1:5002 |
+| OSRM coche | http://127.0.0.1:5001 |
+| OSRM bicicleta | http://127.0.0.1:5002 |
+| OSRM a pie | http://127.0.0.1:5003 |
 
 ---
 
@@ -132,9 +132,9 @@ routers:
 Navegador (React + Leaflet)
         │  HTTP
         ▼
-Backend FastAPI ──► OSRM coche     (puerto 5000)   /api/osrm
-                    OSRM bicicleta (puerto 5001)   /api/otp
-                    OSRM a pie     (puerto 5002)   /api/gtfs
+Backend FastAPI ──► OSRM coche     (puerto 5001)   /api/osrm
+                    OSRM bicicleta (puerto 5002)   /api/otp
+                    OSRM a pie     (puerto 5003)   /api/gtfs
                     OTP            (puerto 8080)   /api/lpmc
 ```
 

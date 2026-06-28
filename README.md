@@ -104,9 +104,9 @@ docker compose ps                   # list container status
 | Backend API | http://127.0.0.1:8000 |
 | API health | http://127.0.0.1:8000/health |
 | OpenTripPlanner | http://127.0.0.1:8080 |
-| OSRM — car | http://127.0.0.1:5000 |
-| OSRM — cycling | http://127.0.0.1:5001 |
-| OSRM — foot | http://127.0.0.1:5002 |
+| OSRM — car | http://127.0.0.1:5001 |
+| OSRM — cycling | http://127.0.0.1:5002 |
+| OSRM — foot | http://127.0.0.1:5003 |
 
 ---
 
@@ -139,9 +139,9 @@ the FastAPI backend, which acts as an orchestration layer with four routers:
 Browser (React + Leaflet)
         │  HTTP
         ▼
-FastAPI backend ──► OSRM car      (port 5000)   /api/osrm
-                    OSRM cycling  (port 5001)   /api/otp
-                    OSRM foot     (port 5002)   /api/gtfs
+FastAPI backend ──► OSRM car      (port 5001)   /api/osrm
+                    OSRM cycling  (port 5002)   /api/otp
+                    OSRM foot     (port 5003)   /api/gtfs
                     OTP           (port 8080)   /api/lpmc
 ```
 
